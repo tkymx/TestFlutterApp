@@ -44,6 +44,22 @@ dependencies:
   
   # 権限管理
   permission_handler: ^12.0.0
+  
+  # 音声録音機能
+  record: ^5.1.2
+  
+  # 加速度センサー
+  sensors_plus: ^6.0.1
+  
+  # バックグラウンド実行
+  flutter_background_service: ^5.0.10
+  flutter_background_service_android: ^6.3.0
+  
+  # ファイルパス取得
+  path_provider: ^2.1.4
+  
+  # 音声ファイル再生
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:

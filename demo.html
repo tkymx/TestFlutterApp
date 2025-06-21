@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音声アプリ - ボイスメモ & タスクリスト</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .feature-card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .feature-icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .feature-card h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        
+        .feature-list {
+            list-style: none;
+        }
+        
+        .feature-list li {
+            margin-bottom: 10px;
+            padding-left: 20px;
+            position: relative;
+        }
+        
+        .feature-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        
+        .demo-section {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .demo-section h2 {
+            color: #667eea;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 2em;
+        }
+        
+        .demo-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .step {
+            text-align: center;
+            padding: 20px;
+            border: 2px solid #f0f0f0;
+            border-radius: 10px;
+            transition: border-color 0.3s ease;
+        }
+        
+        .step:hover {
+            border-color: #667eea;
+        }
+        
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        
+        .tech-specs {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 40px;
+            margin-bottom: 40px;
+        }
+        
+        .tech-specs h2 {
+            color: #667eea;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .tech-item {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .shake-demo {
+            background: linear-gradient(45deg, #ff6b6b, #feca57);
+            color: white;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .shake-demo::before {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 10px,
+                rgba(255,255,255,0.1) 10px,
+                rgba(255,255,255,0.1) 20px
+            );
+            animation: shake-bg 2s linear infinite;
+        }
+        
+        @keyframes shake-bg {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        
+        .shake-demo h2 {
+            position: relative;
+            z-index: 1;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .shake-demo p {
+            position: relative;
+            z-index: 1;
+            font-size: 1.3em;
+        }
+        
+        .phone-mockup {
+            max-width: 300px;
+            margin: 0 auto;
+            background: #333;
+            border-radius: 25px;
+            padding: 20px;
+            position: relative;
+        }
+        
+        .phone-screen {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .app-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .footer {
+            text-align: center;
+            color: white;
+            padding: 40px 0;
+        }
+        
+        .footer a {
+            color: #feca57;
+            text-decoration: none;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .features {
+                grid-template-columns: 1fr;
+            }
+            
+            .demo-steps {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🎙️ 音声アプリ</h1>
+            <p>端末を振るだけでボイスメモ録音！革新的な音声アプリ</p>
+        </header>
+
+        <div class="shake-demo">
+            <h2>📱 端末を振って録音開始！</h2>
+            <p>バックグラウンドでも動作する革新的な機能</p>
+        </div>
+
+        <section class="features">
+            <div class="feature-card">
+                <div class="feature-icon">🎙️</div>
+                <h3>ボイスメモ機能</h3>
+                <ul class="feature-list">
+                    <li>振動検知で自動録音開始/停止</li>
+                    <li>バックグラウンド動作対応</li>
+                    <li>高品質AAC-LC録音</li>
+                    <li>自動ファイル管理</li>
+                    <li>ワンタップ再生</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">📝</div>
+                <h3>タスクリスト機能</h3>
+                <ul class="feature-list">
+                    <li>音声認識でタスク追加</li>
+                    <li>テキスト入力も対応</li>
+                    <li>完了状態管理</li>
+                    <li>データ永続化</li>
+                    <li>直感的なUI</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🔧</div>
+                <h3>技術的特徴</h3>
+                <ul class="feature-list">
+                    <li>Flutter クロスプラットフォーム</li>
+                    <li>加速度センサー活用</li>
+                    <li>バックグラウンドサービス</li>
+                    <li>権限管理システム</li>
+                    <li>Material Design 3</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="demo-section">
+            <h2>📱 使用方法</h2>
+            <div class="demo-steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h4>アプリを起動</h4>
+                    <p>ボイスメモタブを開いて「振動検知開始」をタップ</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h4>端末を振る</h4>
+                    <p>端末を振ると自動的に録音が開始されます</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h4>再度振って停止</h4>
+                    <p>もう一度振ると録音が停止し、自動保存されます</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <h4>再生・管理</h4>
+                    <p>一覧から録音をタップして再生・管理できます</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="tech-specs">
+            <h2>🛠️ 技術仕様</h2>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <h4>📱 プラットフォーム</h4>
+                    <p>Android / iOS / Web</p>
+                </div>
+                <div class="tech-item">
+                    <h4>🎵 録音形式</h4>
+                    <p>AAC-LC (44.1kHz)</p>
+                </div>
+                <div class="tech-item">
+                    <h4>📊 センサー</h4>
+                    <p>3軸加速度センサー</p>
+                </div>
+                <div class="tech-item">
+                    <h4>🔄 バックグラウンド</h4>
+                    <p>フォアグラウンドサービス</p>
+                </div>
+                <div class="tech-item">
+                    <h4>🗣️ 音声認識</h4>
+                    <p>日本語対応</p>
+                </div>
+                <div class="tech-item">
+                    <h4>💾 データ保存</h4>
+                    <p>ローカルストレージ</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="demo-section">
+            <h2>📱 アプリプレビュー</h2>
+            <div class="phone-mockup">
+                <div class="phone-screen">
+                    <div class="app-icon">🎙️</div>
+                    <h3>ボイスメモ</h3>
+                    <p>振動検知待機中...</p>
+                    <br>
+                    <div style="display: flex; gap: 10px;">
+                        <button style="padding: 10px 20px; border: none; border-radius: 5px; background: #667eea; color: white;">手動録音</button>
+                        <button style="padding: 10px 20px; border: none; border-radius: 5px; background: #4CAF50; color: white;">振動検知開始</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="demo-section">
+            <h2>📋 実装済み機能一覧</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                <div>
+                    <h4>✅ 完了済み機能</h4>
+                    <ul class="feature-list">
+                        <li>振動検知システム</li>
+                        <li>音声録音機能</li>
+                        <li>バックグラウンドサービス</li>
+                        <li>ファイル管理システム</li>
+                        <li>音声再生機能</li>
+                        <li>タスクリスト機能</li>
+                        <li>音声認識機能</li>
+                        <li>権限管理システム</li>
+                        <li>UI/UXデザイン</li>
+                        <li>データ永続化</li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>🚀 今後の拡張予定</h4>
+                    <ul class="feature-list">
+                        <li>音声認識連携</li>
+                        <li>クラウド同期</li>
+                        <li>音声品質向上</li>
+                        <li>カテゴリ分類</li>
+                        <li>音声コマンド</li>
+                        <li>位置情報連携</li>
+                        <li>共有機能</li>
+                        <li>暗号化機能</li>
+                        <li>多言語対応</li>
+                        <li>ウィジェット機能</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <footer class="footer">
+        <p>&copy; 2024 音声アプリ - ボイスメモ & タスクリスト</p>
+        <p>Flutter で開発されたクロスプラットフォームアプリ</p>
+        <p><a href="https://github.com/tkymx/TestFlutterApp">GitHub リポジトリ</a></p>
+    </footer>
+
+    <script>
+        // 簡単なインタラクション効果
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.feature-card, .step');
+            
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                    }
+                });
+            });
+            
+            cards.forEach(card => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                observer.observe(card);
+            });
+        });
+    </script>
+</body>
+</html>

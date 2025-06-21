@@ -5,7 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_app/main.dart';
+import '../lib/main.dart';
 
 void main() {
   group('音声タスクリストアプリのテスト', () {
@@ -14,8 +14,9 @@ void main() {
       await tester.pumpWidget(const MyApp());
       await tester.pumpAndSettle();
 
-      // アプリタイトルが表示されることを確認
-      expect(find.text('音声タスクリスト'), findsOneWidget);
+      // タブが表示されることを確認
+      expect(find.text('タスクリスト'), findsOneWidget);
+      expect(find.text('ボイスメモ'), findsOneWidget);
 
       // 初期状態では「タスクがありません」メッセージが表示されることを確認
       expect(find.textContaining('タスクがありません'), findsOneWidget);
