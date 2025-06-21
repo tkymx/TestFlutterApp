@@ -435,15 +435,8 @@ class _TaskListPageState extends State<TaskListPage> {
           // タスクリスト
           Expanded(
             child: _tasks.isEmpty
-                ? Center(
-                    child: Text(
-                      kIsWeb 
-                        ? 'タスクがありません\nテキスト入力でタスクを追加してください'
-                        : 'タスクがありません\n音声入力またはテキスト入力でタスクを追加してください',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 16, color: Colors.grey),
-                    ),
-                  )
+                ? _buildEmptyMessage()
+                  
                 : ListView.builder(
                     padding: const EdgeInsets.all(8.0),
                     itemCount: _tasks.length,
@@ -555,6 +548,27 @@ class _TaskListPageState extends State<TaskListPage> {
             )
           : null,
     );
+  }
+
+  // 空のメッセージを構築
+  Widget _buildEmptyMessage() {
+    if (kIsWeb) {
+      return const Center(
+        child: Text(
+          'タスクがありません\nテキスト入力でタスクを追加してください',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+      );
+    } else {
+      return const Center(
+        child: Text(
+          'タスクがありません\n音声入力またはテキスト入力でタスクを追加してください',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+      );
+    }
   }
 
   @override
