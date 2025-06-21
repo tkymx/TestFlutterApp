@@ -1,9 +1,6 @@
-// This is a basic Flutter widget test.
+// 音声タスクリストアプリのウィジェットテスト
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// このテストファイルは、タスクリストアプリの基本機能をテストします。
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,20 +8,63 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_app/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('音声タスクリストアプリのテスト', () {
+    testWidgets('アプリの初期状態テスト', (WidgetTester tester) async {
+      // アプリを起動
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+      // アプリタイトルが表示されることを確認
+      expect(find.text('音声タスクリスト'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+      // 初期状態では「タスクがありません」メッセージが表示されることを確認
+      expect(find.textContaining('タスクがありません'), findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+      // テキスト入力フィールドが存在することを確認
+      expect(find.byType(TextField), findsOneWidget);
+
+      // 追加ボタンが存在することを確認
+      expect(find.text('追加'), findsOneWidget);
+    });
+
+    testWidgets('テキスト入力によるタスク追加テスト', (WidgetTester tester) async {
+      // アプリを起動
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
+
+      // テキストフィールドにタスクを入力
+      const testTask = 'テストタスク';
+      await tester.enterText(find.byType(TextField), testTask);
+      await tester.pump();
+
+      // 追加ボタンをタップ
+      await tester.tap(find.text('追加'));
+      await tester.pumpAndSettle();
+
+      // タスクが追加されたことを確認
+      expect(find.text(testTask), findsOneWidget);
+
+      // 「タスクがありません」メッセージが消えたことを確認
+      expect(find.textContaining('タスクがありません'), findsNothing);
+
+      // チェックボックスが表示されることを確認
+      expect(find.byType(Checkbox), findsOneWidget);
+    });
+
+    testWidgets('空のタスクは追加されないテスト', (WidgetTester tester) async {
+      // アプリを起動
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
+
+      // 空のテキストで追加ボタンをタップ
+      await tester.tap(find.text('追加'));
+      await tester.pumpAndSettle();
+
+      // 「タスクがありません」メッセージが残っていることを確認
+      expect(find.textContaining('タスクがありません'), findsOneWidget);
+
+      // チェックボックスが表示されないことを確認
+      expect(find.byType(Checkbox), findsNothing);
+    });
   });
 }
