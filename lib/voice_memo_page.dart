@@ -171,7 +171,7 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
 
     if (confirmed == true) {
       if (_currentPlayingId == voiceMemo.id) {
-        await _stopPlayback();
+        _stopPlayback();
       }
       
       await _voiceMemoService.deleteVoiceMemo(voiceMemo);

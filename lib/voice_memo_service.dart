@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'dart:convert';
 
 class VoiceMemo {
@@ -171,7 +172,7 @@ class VoiceMemoService {
       _accelerometerSubscription = null;
       
       // バックグラウンドサービス停止
-      await FlutterBackgroundService().invoke('stop');
+      FlutterBackgroundService().invoke('stop');
       _isBackgroundServiceRunning = false;
       
       print('振動検知を停止しました');
@@ -361,17 +362,21 @@ void onStart(ServiceInstance service) async {
     });
 
     service.on('recording_started').listen((event) {
-      service.setNotificationInfo(
-        title: 'ボイスメモ',
-        content: '録音中...',
-      );
+      if (service is AndroidServiceInstance) {
+        service.setForegroundNotificationInfo(
+          title: 'ボイスメモ',
+          content: '録音中...',
+        );
+      }
     });
 
     service.on('recording_stopped').listen((event) {
-      service.setNotificationInfo(
-        title: 'ボイスメモ',
-        content: '振動検知待機中...',
-      );
+      if (service is AndroidServiceInstance) {
+        service.setForegroundNotificationInfo(
+          title: 'ボイスメモ',
+          content: '振動検知待機中...',
+        );
+      }
     });
   }
 }
