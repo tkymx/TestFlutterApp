@@ -33,6 +33,23 @@ android {
         ndk {
             abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
         }
+        
+        buildFeatures {
+            dataBinding false
+            viewBinding false
+        }
+
+        // Vosk model assets configuration
+        sourceSets {
+            main {
+                assets.srcDirs += "$buildDir/generated/assets"
+            }
+        }
+
+        packagingOptions {
+            pickFirst '**/libc++_shared.so'
+            pickFirst '**/libjnigraphics.so'
+        }
     }
 
     buildTypes {
@@ -54,13 +71,52 @@ android {
             minifyEnabled false
         }
     }
+    
+    packagingOptions {
+        pickFirst '**/libjnidispatch.so'
+        pickFirst '**/libc++_shared.so'
+        pickFirst '**/libvosk.so'
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.txt'
+    }
 }
+
+// Vosk model UUID generation task (following vosk-android-demo pattern)
+tasks.register('genVoskModelUUID') {
+    def uuid = UUID.randomUUID().toString()
+    def odir = file("$buildDir/generated/assets/vosk-model-small-ja-0.22")
+    def ofile = file("$odir/uuid")
+    doLast {
+        mkdir odir
+        ofile.text = uuid
+        println "Generated Vosk model UUID: $uuid"
+    }
+}
+
+// UUIDタスクをビルド前に実行
+preBuild.dependsOn(genVoskModelUUID)
 
 flutter {
     source = "../.."
 }
 
 dependencies {
+    // Vosk Speech Recognition API（JNA依存関係含む）
+    implementation 'com.alphacephei:vosk-android:0.3.32'
+    implementation 'net.java.dev.jna:jna:5.13.0@aar'
+    
+    // JSON処理
+    implementation 'org.json:json:20231013'
+    
+    // File handling
+    implementation 'androidx.core:core-ktx:1.12.0'
+    
+    // Kotlin coroutines
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    
     // 開発中はGoogle Play Core API依存関係を削除
     // 本番リリース時に必要に応じて追加:
     // implementation 'com.google.android.play:core:1.10.3'

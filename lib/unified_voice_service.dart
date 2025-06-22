@@ -52,7 +52,7 @@ class VoiceMemo {
 
 /// 統合音声サービス
 /// 録音、音声認識、連続音声認識、一時停止/再開機能を統合
-/// Android Speech Recognition APIを使用
+/// Vosk Speech Recognition APIを使用
 class UnifiedVoiceService {
   static final UnifiedVoiceService _instance = UnifiedVoiceService._internal();
   factory UnifiedVoiceService() => _instance;
@@ -63,7 +63,7 @@ class UnifiedVoiceService {
   // Audio Recorder
   final AudioRecorder _recorder = AudioRecorder();
   
-  // Android Speech Recognition API用のMethodChannel
+  // Vosk Speech Recognition API用のMethodChannel
   static const MethodChannel _channel = MethodChannel('android_speech_recognition');
   
   // 状態管理
@@ -170,18 +170,33 @@ class UnifiedVoiceService {
         print('録音機能の初期化に失敗しました。録音機能が制限される可能性があります');
       }
       
-      // Android Speech Recognition APIの初期化
+      // Vosk Speech Recognition APIの初期化
       try {
         final result = await _channel.invokeMethod('initialize');
         _speechEnabled = result == true;
         if (_speechEnabled) {
-          print('Android Speech Recognition APIの初期化に成功しました');
+          print('Vosk Speech Recognition APIの初期化に成功しました');
         } else {
-          print('Android Speech Recognition APIの初期化に失敗しました');
+          print('Vosk Speech Recognition APIの初期化に失敗しました');
         }
       } catch (e) {
-        print('Android Speech Recognition API初期化エラー: $e');
+        print('Vosk Speech Recognition API初期化エラー: $e');
         _speechEnabled = false;
+        
+        // 各種エラーに対するフォールバック処理
+        final errorMessage = e.toString().toLowerCase();
+        if (errorMessage.contains('native') || 
+            errorMessage.contains('jna') || 
+            errorMessage.contains('libvosk') ||
+            errorMessage.contains('unsatisfiedlinkerror') ||
+            errorMessage.contains('permission') ||
+            errorMessage.contains('model') ||
+            errorMessage.contains('download')) {
+          print('音声認識機能は無効ですが、録音機能で続行します');
+          onError?.call('音声認識機能が利用できません。録音機能のみ使用できます。');
+        } else {
+          onError?.call('音声認識初期化エラー: $e');
+        }
       }
       
       _isInitialized = true;
@@ -407,7 +422,7 @@ class UnifiedVoiceService {
 
     try {
       await _channel.invokeMethod('startListening', {
-        'locale': 'ja-JP',
+        'locale': 'ja',  // Vosk用のロケール形式
         'partialResults': true,
         'maxResults': 5,
       });
@@ -416,9 +431,9 @@ class UnifiedVoiceService {
         _startRestartTimer();
       }
       
-      print('音声認識を開始しました');
+      print('Vosk音声認識を開始しました');
     } catch (e) {
-      print('音声認識開始エラー: $e');
+      print('Vosk音声認識開始エラー: $e');
       if (_isContinuousListening) {
         _scheduleRestart();
       }
@@ -712,11 +727,11 @@ class UnifiedVoiceService {
         return null;
       }
       
-      // Android Speech Recognition APIで音声ファイルから書き起こし
+      // Voskで音声ファイルから書き起こし
       try {
         final result = await _channel.invokeMethod('transcribeAudioFile', {
           'filePath': filePath,
-          'locale': 'ja-JP',
+          'locale': 'ja',  // Vosk用のロケール形式
         });
         
         if (result != null && result is Map) {
@@ -724,18 +739,27 @@ class UnifiedVoiceService {
           final text = result['text'] as String?;
           
           if (success && text != null && text.isNotEmpty) {
-            print('音声ファイル書き起こし成功: $text');
+            print('Vosk音声ファイル書き起こし成功: $text');
             return text;
           } else {
-            print('音声ファイル書き起こし失敗または結果なし');
+            print('Vosk音声ファイル書き起こし失敗または結果なし');
             return null;
           }
         } else {
-          print('音声ファイル書き起こし結果が不正です');
+          print('Vosk音声ファイル書き起こし結果が不正です');
           return null;
         }
       } catch (e) {
-        print('音声ファイル書き起こしエラー: $e');
+        print('Vosk音声ファイル書き起こしエラー: $e');
+        
+        // VoskのJNIエラーの場合、録音のみ対応であることを通知
+        if (e.toString().contains('Native') || 
+            e.toString().contains('JNA') || 
+            e.toString().contains('libvosk') ||
+            e.toString().contains('UnsatisfiedLinkError')) {
+          print('音声認識ライブラリエラー: 録音機能のみ利用可能です');
+          onStatusChanged?.call('音声認識機能が利用できません');
+        }
         return null;
       }
       
@@ -871,11 +895,11 @@ class UnifiedVoiceService {
     _stopTimers();
     _recorder.dispose();
     
-    // Android Speech Recognition APIのクリーンアップ
+    // Vosk Speech Recognition APIのクリーンアップ
     try {
       _channel.invokeMethod('cleanup');
     } catch (e) {
-      print('Android Speech Recognition API クリーンアップエラー: $e');
+      print('Vosk Speech Recognition API クリーンアップエラー: $e');
     }
     
     _isInitialized = false;
