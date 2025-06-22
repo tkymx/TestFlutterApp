@@ -1,14 +1,12 @@
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'dart:math';
 
@@ -210,12 +208,13 @@ class UnifiedVoiceService {
       final fileName = 'voice_memo_${DateTime.now().millisecondsSinceEpoch}.m4a';
       _currentRecordingPath = '${directory.path}/$fileName';
 
-      // 録音開始
+      // 録音設定を高品質に設定
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
           bitRate: 128000,
           sampleRate: 44100,
+          numChannels: 1, // モノラル録音で音声認識精度向上
         ),
         path: _currentRecordingPath!,
       );
@@ -225,10 +224,16 @@ class UnifiedVoiceService {
       _recognizedText = '';
       onRecordingStateChanged?.call(true);
       
-      // 音声認識開始
+      // 音声認識開始（少し遅延させて録音が安定してから開始）
+      await Future.delayed(const Duration(milliseconds: 500));
       await _startSpeechRecognition();
+      
+      _startSoundLevelSimulation();
+      onStatusChanged?.call('録音開始 - 話しかけてください');
       print('録音を開始しました: $_currentRecordingPath');
     } catch (e) {
+      _isRecording = false;
+      onRecordingStateChanged?.call(false);
       onError?.call('録音開始エラー: $e');
     }
   }
@@ -238,12 +243,17 @@ class UnifiedVoiceService {
     if (!_isRecording) return;
 
     try {
-      final path = await _recorder.stop();
-      _isRecording = false;
-      onRecordingStateChanged?.call(false);
-      
       // 音声認識停止
       await _stopSpeechRecognition();
+      
+      // 少し待ってから録音停止（最後の音声を確実に録音）
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      final path = await _recorder.stop();
+      _isRecording = false;
+      _stopTimers();
+      onRecordingStateChanged?.call(false);
+      onStatusChanged?.call('録音停止 - 処理中...');
 
       if (path != null && _recordingStartTime != null) {
         await _processRecordedFile(path);
@@ -253,11 +263,15 @@ class UnifiedVoiceService {
 
       _currentRecordingPath = null;
       _recordingStartTime = null;
+      _soundLevel = 0.0;
     } catch (e) {
       print('録音停止エラー詳細: $e');
       onError?.call('録音停止エラー: $e');
       _currentRecordingPath = null;
       _recordingStartTime = null;
+      _isRecording = false;
+      _soundLevel = 0.0;
+      onRecordingStateChanged?.call(false);
     }
   }
 
@@ -358,14 +372,25 @@ class UnifiedVoiceService {
           if (result.recognizedWords.isNotEmpty) {
             _recognizedText = result.recognizedWords;
             onTranscriptionUpdated?.call(_recognizedText);
+            
+            // 結果が確定している場合のログ
+            if (result.finalResult) {
+              print('音声認識確定: $_recognizedText');
+            }
           }
         },
         listenFor: const Duration(seconds: 60),
-        pauseFor: const Duration(seconds: 3),
-        partialResults: true,
+        pauseFor: const Duration(seconds: 2), // 一時停止時間を短縮
+        partialResults: true, // 部分結果を有効にしてリアルタイム表示
         localeId: 'ja_JP',
         cancelOnError: false,
         listenMode: stt.ListenMode.confirmation,
+        onSoundLevelChange: (level) {
+          // 実際の音声レベルが取得できる場合は使用
+          if (_isRecording || _isContinuousListening) {
+            _soundLevel = level.clamp(0.0, 1.0);
+          }
+        },
       );
     } catch (e) {
       print('音声認識開始エラー: $e');
@@ -468,12 +493,12 @@ class UnifiedVoiceService {
       
       // ファイルサイズの確認
       final fileSize = await file.length();
-      if (fileSize <= 0) {
-        onError?.call('録音ファイルが空です: $path');
+      if (fileSize <= 1024) { // 1KB以下は無効とみなす
+        onError?.call('録音時間が短すぎます。もう一度お試しください。');
         try {
           await file.delete();
         } catch (e) {
-          print('空ファイル削除エラー: $e');
+          print('不完全ファイル削除エラー: $e');
         }
         return;
       }
@@ -481,14 +506,26 @@ class UnifiedVoiceService {
       // 録音時間計算
       final duration = DateTime.now().difference(_recordingStartTime!);
       
-      // 書き起こしテキストを保存
-      final transcriptionText = _recognizedText.isNotEmpty ? _recognizedText : null;
+      // 書き起こしテキストを保存（最終確認）
+      final transcriptionText = _recognizedText.isNotEmpty ? _recognizedText.trim() : null;
+      
+      // タイトル生成（書き起こしテキストがある場合は先頭部分を使用）
+      String title;
+      if (transcriptionText != null && transcriptionText.isNotEmpty) {
+        // 最初の20文字程度をタイトルにする
+        final titleText = transcriptionText.length > 20 
+            ? '${transcriptionText.substring(0, 20)}...' 
+            : transcriptionText;
+        title = titleText;
+      } else {
+        title = 'ボイスメモ ${DateTime.now().month}/${DateTime.now().day} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}';
+      }
       
       // ボイスメモオブジェクト作成
       final voiceMemo = VoiceMemo(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         filePath: path,
-        title: 'ボイスメモ ${DateTime.now().month}/${DateTime.now().day} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
+        title: title,
         createdAt: _recordingStartTime!,
         duration: duration,
         transcription: transcriptionText,
@@ -501,9 +538,12 @@ class UnifiedVoiceService {
         
         if (transcriptionText != null && transcriptionText.isNotEmpty) {
           onTranscriptionUpdated?.call(transcriptionText);
+          onStatusChanged?.call('録音完了 - 書き起こし成功');
+        } else {
+          onStatusChanged?.call('録音完了 - 書き起こしなし');
         }
         
-        print('録音を停止しました: $path (サイズ: ${fileSize}バイト)');
+        print('録音を停止しました: $path (サイズ: ${(fileSize / 1024).toStringAsFixed(1)}KB)');
         print('書き起こし: ${voiceMemo.transcription ?? "なし"}');
       } else {
         onError?.call('ボイスメモの保存に失敗しました');

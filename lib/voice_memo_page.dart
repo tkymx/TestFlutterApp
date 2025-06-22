@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'unified_voice_service.dart';
 import 'dart:io';
-import 'dart:async';
 
 class VoiceMemoPage extends StatefulWidget {
   const VoiceMemoPage({super.key});
@@ -23,9 +22,6 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
   bool _isPlaying = false;
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
-  String _currentTranscription = '';
-  String _currentStatus = '';
-  double _soundLevel = 0.0;
 
   @override
   void initState() {
@@ -97,35 +93,6 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         );
       }
     };
-    
-    _voiceService.onTranscriptionUpdated = (text) {
-      if (mounted) {
-        setState(() {
-          _currentTranscription = text;
-        });
-      }
-    };
-    
-    _voiceService.onStatusChanged = (status) {
-      if (mounted) {
-        setState(() {
-          _currentStatus = status;
-        });
-      }
-    };
-    
-    // 音声レベルの更新
-    Timer.periodic(const Duration(milliseconds: 100), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (_voiceService.isContinuousListening || _voiceService.isRecording) {
-        setState(() {
-          _soundLevel = _voiceService.soundLevel;
-        });
-      }
-    });
   }
 
   void _setupAudioPlayer() {
@@ -242,33 +209,6 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
     await _voiceService.stopRecording();
   }
 
-  void _startContinuousListening() async {
-    await _voiceService.startContinuousListening();
-  }
-
-  void _stopContinuousListening() async {
-    await _voiceService.stopListening();
-    // 連続音声認識で認識されたテキストからボイスメモを作成
-    await _createManualVoiceMemo();
-  }
-
-  Future<void> _createManualVoiceMemo() async {
-    final voiceMemo = await _voiceService.createManualVoiceMemo();
-    if (voiceMemo != null) {
-      setState(() {
-        _voiceMemos.insert(0, voiceMemo);
-      });
-    }
-  }
-
-  void _pauseContinuousListening() async {
-    await _voiceService.pauseListening();
-  }
-
-  void _resumeContinuousListening() async {
-    await _voiceService.resumeListening();
-  }
-
   void _playVoiceMemo(VoiceMemo voiceMemo) async {
     try {
       // ファイルの存在確認
@@ -319,10 +259,6 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
               await _audioPlayer.play(DeviceFileSource(voiceMemo.filePath));
               setState(() {
                 _currentPlayingId = voiceMemo.id;
-                // 録音中でない場合は、現在の書き起こしテキストをリセット
-                if (!_voiceService.isRecording && !_voiceService.isContinuousListening) {
-                  _currentTranscription = '';
-                }
               });
               
               // 再生成功の通知
@@ -387,80 +323,6 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
       ),
     );
   }
-  
-  // 書き起こしテキストを表示するダイアログを表示
-  void _showTranscriptionDialog(VoiceMemo voiceMemo) {
-    if (voiceMemo.transcription == null || voiceMemo.transcription!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('書き起こしテキストがありません')),
-      );
-      return;
-    }
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(voiceMemo.title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '書き起こしテキスト:',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12.0),
-              decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8.0),
-                border: Border.all(color: Colors.grey.withOpacity(0.3)),
-              ),
-              child: SelectableText(
-                voiceMemo.transcription!,
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              // テキストをクリップボードにコピー
-              Clipboard.setData(ClipboardData(text: voiceMemo.transcription!));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('テキストをコピーしました')),
-              );
-            },
-            child: const Text('コピー'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('閉じる'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _stopPlayback() async {
-    await _audioPlayer.stop();
-    setState(() {
-      _currentPlayingId = null;
-      _isPlaying = false;
-      _currentPosition = Duration.zero;
-      _totalDuration = Duration.zero;
-      // 録音中でない場合は、現在の書き起こしテキストをリセット
-      if (!_voiceService.isRecording && !_voiceService.isContinuousListening) {
-        _currentTranscription = '';
-      }
-    });
-  }
 
   void _deleteVoiceMemo(VoiceMemo voiceMemo) async {
     final confirmed = await showDialog<bool>(
@@ -495,6 +357,16 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         const SnackBar(content: Text('ボイスメモを削除しました')),
       );
     }
+  }
+
+  void _stopPlayback() async {
+    await _audioPlayer.stop();
+    setState(() {
+      _currentPlayingId = null;
+      _isPlaying = false;
+      _currentPosition = Duration.zero;
+      _totalDuration = Duration.zero;
+    });
   }
 
   String _formatDuration(Duration duration) {
@@ -635,14 +507,6 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              if (_currentStatus.isNotEmpty)
-                                Text(
-                                  _currentStatus,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.blue,
-                                  ),
-                                ),
                             ],
                           ),
                           const SizedBox(width: 8),
@@ -663,106 +527,59 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                           ),
                         ],
                       ),
-                      // 録音中の書き起こしテキスト表示
-                      if ((_voiceService.isRecording || _voiceService.isContinuousListening) && _currentTranscription.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Container(
-                            padding: const EdgeInsets.all(8.0),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(4.0),
-                              border: Border.all(color: Colors.grey.withOpacity(0.3)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  '書き起こし:',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _currentTranscription,
-                                  style: const TextStyle(fontSize: 14),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
                 // 録音ボタン
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // 通常の録音ボタン
-                    ElevatedButton.icon(
-                      onPressed: _voiceService.isRecording
-                        ? _stopManualRecording
-                        : _startManualRecording,
-                      icon: Icon(_voiceService.isRecording ? Icons.stop : Icons.mic),
-                      label: Text(_voiceService.isRecording ? '録音停止' : '録音開始'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _voiceService.isRecording ? Colors.red : Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    // 通常の録音ボタン（標準サイズに変更）
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: (_voiceService.isRecording ? Colors.red : Colors.green).withOpacity(0.3),
+                            blurRadius: _voiceService.isRecording ? 12 : 6,
+                            spreadRadius: _voiceService.isRecording ? 3 : 1,
+                          ),
+                        ],
                       ),
-                    ),
-                    // 連続音声認識ボタン
-                    ElevatedButton.icon(
-                      onPressed: _voiceService.isContinuousListening
-                        ? _stopContinuousListening
-                        : _startContinuousListening,
-                      icon: Icon(_voiceService.isContinuousListening ? Icons.stop : Icons.hearing),
-                      label: Text(_voiceService.isContinuousListening ? '認識停止' : '連続認識'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _voiceService.isContinuousListening ? Colors.red : Colors.blue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: FloatingActionButton(
+                        onPressed: _voiceService.isRecording
+                          ? _stopManualRecording
+                          : _startManualRecording,
+                        backgroundColor: _voiceService.isRecording ? Colors.red : Colors.green,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: Icon(
+                            _voiceService.isRecording ? Icons.stop : Icons.mic,
+                            key: ValueKey(_voiceService.isRecording),
+                            size: 26,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-                // 一時停止/再開ボタン（連続音声認識中のみ表示）
-                if (_voiceService.isContinuousListening) ...[
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: _voiceService.isPaused ? _resumeContinuousListening : _pauseContinuousListening,
-                    icon: Icon(_voiceService.isPaused ? Icons.play_arrow : Icons.pause),
-                    label: Text(_voiceService.isPaused ? '再開' : '一時停止'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _voiceService.isPaused ? Colors.blue : Colors.orange,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                // 録音状態の説明テキスト
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    _voiceService.isRecording 
+                        ? 'ボイスメモを録音中...' 
+                        : '大きなボタンを押して録音を開始',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      fontStyle: FontStyle.italic,
                     ),
+                    textAlign: TextAlign.center,
                   ),
-                ],
-                // 音声レベル表示
-                if (_voiceService.isContinuousListening || _voiceService.isRecording) ...[
-                  const SizedBox(height: 12),
-                  Column(
-                    children: [
-                      const Text('音声レベル', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      const SizedBox(height: 4),
-                      LinearProgressIndicator(
-                        value: _soundLevel,
-                        backgroundColor: Colors.grey[300],
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          _soundLevel > 0.5 ? Colors.green : Colors.blue,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ],
             ),
           ),
@@ -851,6 +668,55 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                                   '長さ: 00:00',
                                   style: TextStyle(fontSize: 12, color: Colors.grey),
                                 ),
+                              // 書き起こしテキストのプレビュー表示
+                              if (hasTranscription)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6.0),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8.0),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.05),
+                                      borderRadius: BorderRadius.circular(4.0),
+                                      border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.transcribe,
+                                              size: 12,
+                                              color: Colors.blue,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            const Text(
+                                              '書き起こし:',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.blue,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          memo.transcription!.length > 80 
+                                            ? '${memo.transcription!.substring(0, 80)}...'
+                                            : memo.transcription!,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black87,
+                                            height: 1.3,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               // メモの種類を表示
                               Padding(
                                 padding: const EdgeInsets.only(top: 4.0),
@@ -864,7 +730,7 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                                     const SizedBox(width: 4),
                                     Text(
                                       hasAudioFile 
-                                        ? (hasTranscription ? '書き起こしあり' : '音声のみ')
+                                        ? (hasTranscription ? '音声+書き起こし' : '音声のみ')
                                         : '書き起こしのみ',
                                       style: const TextStyle(fontSize: 12, color: Colors.grey),
                                     ),
@@ -910,19 +776,9 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
   String _getRecordingState() {
     if (_voiceService.isRecording) {
       return '録音中...';
-    } else if (_voiceService.isContinuousListening) {
-      if (_voiceService.isPaused) {
-        return '一時停止中';
-      } else {
-        return '連続音声認識中...';
-      }
     } else {
       return '停止中';
     }
-  }
-
-  bool _isCurrentlyRecording() {
-    return _voiceService.isRecording || _voiceService.isContinuousListening;
   }
 
   @override
@@ -930,5 +786,30 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
     _audioPlayer.dispose();
     _voiceService.dispose();
     super.dispose();
+  }
+
+  // 書き起こしテキストを表示するダイアログ（録音後の書き起こし表示用）
+  void _showTranscriptionDialog(VoiceMemo voiceMemo) {
+    if (voiceMemo.transcription == null || voiceMemo.transcription!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('書き起こしテキストがありません')),
+      );
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(voiceMemo.title),
+        content: SingleChildScrollView(
+          child: Text(voiceMemo.transcription!),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
   }
 }
