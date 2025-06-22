@@ -8,6 +8,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'voice_memo_service.dart';
 
@@ -329,7 +331,7 @@ class EnhancedVoiceService {
   }
 
   /// 音声認識結果のコールバック
-  void _onSpeechResult(stt.SpeechRecognitionResult result) {
+  void _onSpeechResult(SpeechRecognitionResult result) {
     _recognizedText = result.recognizedWords;
     onTranscriptionUpdated?.call(_recognizedText);
     print('認識テキスト: $_recognizedText');
@@ -356,7 +358,7 @@ class EnhancedVoiceService {
   }
 
   /// 音声認識エラーのコールバック
-  void _onSpeechError(stt.SpeechRecognitionError error) {
+  void _onSpeechError(SpeechRecognitionError error) {
     print('音声認識エラー: ${error.errorMsg}');
     _handleSpeechError(error.errorMsg);
   }
