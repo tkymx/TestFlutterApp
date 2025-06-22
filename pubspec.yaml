@@ -66,6 +66,9 @@ dependencies:
   
   # 画面スリープ防止
   wakelock_plus: ^1.2.8
+  
+  # 高度な音声認識（連続音声認識対応）
+  manual_speech_to_text: ^1.0.4
 
 dev_dependencies:
   flutter_test:

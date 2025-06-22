@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'voice_memo_service.dart';
 import 'enhanced_voice_service.dart';
+import 'manual_voice_service.dart';
 import 'dart:io';
+import 'dart:async';
 
 class VoiceMemoPage extends StatefulWidget {
   const VoiceMemoPage({super.key});
@@ -16,6 +18,7 @@ class VoiceMemoPage extends StatefulWidget {
 class _VoiceMemoPageState extends State<VoiceMemoPage> {
   final VoiceMemoService _voiceMemoService = VoiceMemoService();
   final EnhancedVoiceService _enhancedVoiceService = EnhancedVoiceService();
+  final ManualVoiceService _manualVoiceService = ManualVoiceService();
   final AudioPlayer _audioPlayer = AudioPlayer();
   
   List<VoiceMemo> _voiceMemos = [];
@@ -27,6 +30,8 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
   String _currentTranscription = '';
   String _currentStatus = '';
   bool _useEnhancedService = false;
+  bool _useManualService = false;
+  double _soundLevel = 0.0;
 
   @override
   void initState() {
@@ -37,19 +42,30 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
 
   void _initializeService() async {
     try {
-      // 拡張サービスの初期化を試行
-      bool enhancedSuccess = await _enhancedVoiceService.initialize();
+      // Manual音声サービスの初期化を最優先で試行
+      bool manualSuccess = await _manualVoiceService.initialize();
       
-      if (enhancedSuccess) {
-        print('拡張音声サービスの初期化に成功しました');
-        _useEnhancedService = true;
-        _setupEnhancedServiceCallbacks();
+      if (manualSuccess) {
+        print('Manual音声サービスの初期化に成功しました');
+        _useManualService = true;
+        _setupManualServiceCallbacks();
       } else {
-        print('拡張音声サービスの初期化に失敗しました。標準サービスを使用します。');
-        // 標準サービスの初期化
-        bool standardSuccess = await _voiceMemoService.initialize();
-        if (standardSuccess) {
-          _setupStandardServiceCallbacks();
+        print('Manual音声サービスの初期化に失敗しました。拡張サービスを試行します。');
+        
+        // 拡張サービスの初期化を試行
+        bool enhancedSuccess = await _enhancedVoiceService.initialize();
+        
+        if (enhancedSuccess) {
+          print('拡張音声サービスの初期化に成功しました');
+          _useEnhancedService = true;
+          _setupEnhancedServiceCallbacks();
+        } else {
+          print('拡張音声サービスの初期化に失敗しました。標準サービスを使用します。');
+          // 標準サービスの初期化
+          bool standardSuccess = await _voiceMemoService.initialize();
+          if (standardSuccess) {
+            _setupStandardServiceCallbacks();
+          }
         }
       }
       
@@ -76,6 +92,46 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         );
       }
     }
+  }
+
+  void _setupManualServiceCallbacks() {
+    _manualVoiceService.onTranscriptionUpdated = (text) {
+      if (mounted) {
+        setState(() {
+          _currentTranscription = text;
+        });
+      }
+    };
+    
+    _manualVoiceService.onError = (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Manual音声サービス: $error')),
+        );
+      }
+    };
+    
+    _manualVoiceService.onStatusChanged = (status) {
+      if (mounted) {
+        setState(() {
+          _currentStatus = status;
+        });
+      }
+    };
+    
+    // 音声レベルの更新は頻繁なので、setState()を呼び出すが、
+    // 実際のUIの更新は必要な時のみ行う
+    Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (!mounted || !_useManualService) {
+        timer.cancel();
+        return;
+      }
+      if (_manualVoiceService.isListening) {
+        setState(() {
+          _soundLevel = _manualVoiceService.soundLevel;
+        });
+      }
+    });
   }
 
   void _setupEnhancedServiceCallbacks() {
@@ -187,7 +243,11 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
 
   void _loadVoiceMemos() async {
     List<VoiceMemo> voiceMemos;
-    if (_useEnhancedService) {
+    if (_useManualService) {
+      // ManualVoiceServiceは直接ボイスメモリストを管理しないため、
+      // 標準サービスからロードする
+      voiceMemos = await _voiceMemoService.getVoiceMemos();
+    } else if (_useEnhancedService) {
       voiceMemos = await _enhancedVoiceService.getVoiceMemos();
     } else {
       voiceMemos = await _voiceMemoService.getVoiceMemos();
@@ -197,10 +257,10 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
     });
   }
 
-
-
   void _startManualRecording() async {
-    if (_useEnhancedService) {
+    if (_useManualService) {
+      await _manualVoiceService.startContinuousListening();
+    } else if (_useEnhancedService) {
       await _enhancedVoiceService.startRecording();
     } else {
       await _voiceMemoService.startRecording();
@@ -208,10 +268,61 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
   }
 
   void _stopManualRecording() async {
-    if (_useEnhancedService) {
+    if (_useManualService) {
+      await _manualVoiceService.stopListening();
+      // ManualVoiceServiceで認識されたテキストからボイスメモを作成
+      await _createVoiceMemoFromManualService();
+    } else if (_useEnhancedService) {
       await _enhancedVoiceService.stopRecording();
     } else {
       await _voiceMemoService.stopRecording();
+    }
+  }
+
+  Future<void> _createVoiceMemoFromManualService() async {
+    if (_manualVoiceService.recognizedText.isNotEmpty) {
+      try {
+        final voiceMemo = VoiceMemo(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: 'Manual音声メモ ${DateTime.now().toString().substring(0, 16)}',
+          transcription: _manualVoiceService.recognizedText,
+          filePath: '', // Manual音声認識では音声ファイルは保存されない
+          createdAt: DateTime.now(),
+          duration: Duration.zero,
+        );
+        
+        // 標準サービスを使用してボイスメモを保存
+        await _voiceMemoService.saveVoiceMemo(voiceMemo);
+        
+        setState(() {
+          _voiceMemos.insert(0, voiceMemo);
+        });
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Manual音声メモが作成されました')),
+          );
+        }
+      } catch (e) {
+        print('Manual音声メモ作成エラー: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('ボイスメモの作成に失敗しました: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  void _pauseManualRecording() async {
+    if (_useManualService) {
+      await _manualVoiceService.pauseListening();
+    }
+  }
+
+  void _resumeManualRecording() async {
+    if (_useManualService) {
+      await _manualVoiceService.resumeListening();
     }
   }
 
@@ -226,9 +337,11 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
           setState(() {
             _currentPlayingId = voiceMemo.id;
             // 録音中でない場合は、現在の書き起こしテキストをリセット
-            bool isRecording = _useEnhancedService ? 
-              _enhancedVoiceService.isRecording : 
-              _voiceMemoService.isRecording;
+            bool isRecording = _useManualService ? 
+              _manualVoiceService.isListening :
+              _useEnhancedService ? 
+                _enhancedVoiceService.isRecording : 
+                _voiceMemoService.isRecording;
             if (!isRecording) {
               _currentTranscription = '';
             }
@@ -312,9 +425,11 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
       _currentPosition = Duration.zero;
       _totalDuration = Duration.zero;
       // 録音中でない場合は、現在の書き起こしテキストをリセット
-      bool isRecording = _useEnhancedService ? 
-        _enhancedVoiceService.isRecording : 
-        _voiceMemoService.isRecording;
+      bool isRecording = _useManualService ? 
+        _manualVoiceService.isListening :
+        _useEnhancedService ? 
+          _enhancedVoiceService.isRecording : 
+          _voiceMemoService.isRecording;
       if (!isRecording) {
         _currentTranscription = '';
       }
@@ -345,7 +460,10 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         _stopPlayback();
       }
       
-      if (_useEnhancedService) {
+      if (_useManualService) {
+        // ManualVoiceServiceは標準サービスを使用してボイスメモを管理
+        await _voiceMemoService.deleteVoiceMemo(voiceMemo);
+      } else if (_useEnhancedService) {
         await _enhancedVoiceService.deleteVoiceMemo(voiceMemo);
       } else {
         await _voiceMemoService.deleteVoiceMemo(voiceMemo);
@@ -462,12 +580,12 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                 Container(
                   padding: const EdgeInsets.all(12.0),
                   decoration: BoxDecoration(
-                    color: (_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording)
+                    color: _getRecordingState() != '停止中'
                       ? Colors.red.withOpacity(0.1)
                       : Colors.grey.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8.0),
                     border: Border.all(
-                      color: (_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording)
+                      color: _getRecordingState() != '停止中'
                         ? Colors.red.withOpacity(0.3)
                         : Colors.grey.withOpacity(0.3),
                     ),
@@ -478,10 +596,10 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            (_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording)
+                            _getRecordingState() != '停止中'
                               ? Icons.fiber_manual_record
                               : Icons.pause_circle_outline,
-                            color: (_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording)
+                            color: _getRecordingState() != '停止中'
                               ? Colors.red
                               : Colors.grey,
                             size: 20,
@@ -490,11 +608,9 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                           Column(
                             children: [
                               Text(
-                                (_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording)
-                                  ? '録音中...'
-                                  : '停止中',
+                                _getRecordingState(),
                                 style: TextStyle(
-                                  color: (_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording)
+                                  color: _getRecordingState() != '停止中'
                                     ? Colors.red
                                     : Colors.grey,
                                   fontWeight: FontWeight.bold,
@@ -567,23 +683,73 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                 ),
                 const SizedBox(height: 16),
                 // 録音ボタン
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: (_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording)
-                        ? _stopManualRecording 
-                        : _startManualRecording,
-                      icon: Icon((_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording) ? Icons.stop : Icons.mic),
-                      label: Text((_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording) ? '録音停止' : '録音開始'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: (_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording) ? Colors.red : (_useEnhancedService ? Colors.green : Colors.blue),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                if (_useManualService) ...[
+                  // Manual音声サービス用のコントロール
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _manualVoiceService.isListening || _manualVoiceService.isPaused
+                          ? _stopManualRecording 
+                          : _startManualRecording,
+                        icon: Icon(_manualVoiceService.isListening || _manualVoiceService.isPaused ? Icons.stop : Icons.mic),
+                        label: Text(_manualVoiceService.isListening || _manualVoiceService.isPaused ? '録音停止' : '連続録音開始'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _manualVoiceService.isListening || _manualVoiceService.isPaused ? Colors.red : Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
                       ),
+                      if (_manualVoiceService.isListening || _manualVoiceService.isPaused)
+                        ElevatedButton.icon(
+                          onPressed: _manualVoiceService.isPaused ? _resumeManualRecording : _pauseManualRecording,
+                          icon: Icon(_manualVoiceService.isPaused ? Icons.play_arrow : Icons.pause),
+                          label: Text(_manualVoiceService.isPaused ? '再開' : '一時停止'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _manualVoiceService.isPaused ? Colors.blue : Colors.orange,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          ),
+                        ),
+                    ],
+                  ),
+                  // 音声レベル表示
+                  if (_manualVoiceService.isListening) ...[
+                    const SizedBox(height: 12),
+                    Column(
+                      children: [
+                        const Text('音声レベル', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        const SizedBox(height: 4),
+                        LinearProgressIndicator(
+                          value: _soundLevel,
+                          backgroundColor: Colors.grey[300],
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            _soundLevel > 0.5 ? Colors.green : Colors.blue,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ),
+                ] else ...[
+                  // 従来のサービス用のコントロール
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _isCurrentlyRecording()
+                          ? _stopManualRecording 
+                          : _startManualRecording,
+                        icon: Icon(_isCurrentlyRecording() ? Icons.stop : Icons.mic),
+                        label: Text(_isCurrentlyRecording() ? '録音停止' : '録音開始'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isCurrentlyRecording() ? Colors.red : (_useEnhancedService ? Colors.green : Colors.blue),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -705,10 +871,38 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
     );
   }
 
+  String _getRecordingState() {
+    if (_useManualService) {
+      if (_manualVoiceService.isListening) {
+        return '連続録音中...';
+      } else if (_manualVoiceService.isPaused) {
+        return '一時停止中';
+      } else {
+        return '停止中';
+      }
+    } else if (_useEnhancedService) {
+      return _enhancedVoiceService.isRecording ? '録音中...' : '停止中';
+    } else {
+      return _voiceMemoService.isRecording ? '録音中...' : '停止中';
+    }
+  }
+
+  bool _isCurrentlyRecording() {
+    if (_useManualService) {
+      return _manualVoiceService.isListening;
+    } else if (_useEnhancedService) {
+      return _enhancedVoiceService.isRecording;
+    } else {
+      return _voiceMemoService.isRecording;
+    }
+  }
+
   @override
   void dispose() {
     _audioPlayer.dispose();
     _voiceMemoService.dispose();
+    _enhancedVoiceService.dispose();
+    _manualVoiceService.dispose();
     super.dispose();
   }
 }

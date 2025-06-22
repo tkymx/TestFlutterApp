@@ -362,7 +362,12 @@ class VoiceMemoService {
     }
   }
 
-  // ボイスメモ保存
+  // ボイスメモ保存（パブリック）
+  Future<void> saveVoiceMemo(VoiceMemo voiceMemo) async {
+    await _saveVoiceMemo(voiceMemo);
+  }
+
+  // ボイスメモ保存（プライベート）
   Future<void> _saveVoiceMemo(VoiceMemo voiceMemo) async {
     try {
       final prefs = await SharedPreferences.getInstance();
