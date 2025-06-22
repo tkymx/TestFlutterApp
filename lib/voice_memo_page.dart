@@ -252,8 +252,84 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
     } else {
       voiceMemos = await _voiceMemoService.getVoiceMemos();
     }
+    
+    // ファイルの存在確認
+    List<VoiceMemo> validatedMemos = [];
+    List<VoiceMemo> invalidMemos = [];
+    
+    for (var memo in voiceMemos) {
+      if (memo.filePath.isEmpty) {
+        // ファイルパスが空の場合（書き起こしのみのメモ）
+        validatedMemos.add(memo);
+        continue;
+      }
+      
+      try {
+        final file = File(memo.filePath);
+        final exists = await file.exists();
+        
+        if (exists) {
+          // ファイルサイズの確認
+          final fileSize = await file.length();
+          if (fileSize > 0) {
+            validatedMemos.add(memo);
+          } else {
+            print('警告: 空のファイル検出: ${memo.filePath}');
+            // 書き起こしがある場合は保持
+            if (memo.transcription != null && memo.transcription!.isNotEmpty) {
+              validatedMemos.add(memo);
+            } else {
+              invalidMemos.add(memo);
+            }
+          }
+        } else {
+          print('警告: ファイルが見つかりません: ${memo.filePath}');
+          // 書き起こしがある場合は保持
+          if (memo.transcription != null && memo.transcription!.isNotEmpty) {
+            validatedMemos.add(memo);
+          } else {
+            invalidMemos.add(memo);
+          }
+        }
+      } catch (e) {
+        print('ファイル確認エラー: ${memo.filePath} - $e');
+        // エラーが発生した場合も、書き起こしがあれば保持
+        if (memo.transcription != null && memo.transcription!.isNotEmpty) {
+          validatedMemos.add(memo);
+        } else {
+          invalidMemos.add(memo);
+        }
+      }
+    }
+    
+    // 無効なメモが見つかった場合、メタデータから削除
+    if (invalidMemos.isNotEmpty) {
+      print('無効なボイスメモを ${invalidMemos.length} 件検出しました');
+      
+      // 無効なメモをメタデータから削除
+      for (var memo in invalidMemos) {
+        if (_useImprovedService) {
+          await _voiceMemoService.deleteVoiceMemo(memo);
+        } else if (_useEnhancedService) {
+          await _enhancedVoiceService.deleteVoiceMemo(memo);
+        } else {
+          await _voiceMemoService.deleteVoiceMemo(memo);
+        }
+      }
+      
+      // 無効なメモが多い場合のみ通知
+      if (invalidMemos.length > 2 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${invalidMemos.length}件の無効なボイスメモを削除しました'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+    
     setState(() {
-      _voiceMemos = voiceMemos;
+      _voiceMemos = validatedMemos;
     });
   }
 
@@ -328,33 +404,93 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
 
   void _playVoiceMemo(VoiceMemo voiceMemo) async {
     try {
+      // ファイルの存在確認
+      if (voiceMemo.filePath.isNotEmpty) {
+        final file = File(voiceMemo.filePath);
+        final exists = await file.exists();
+        
+        if (!exists) {
+          // ファイルが存在しない場合、ユーザーに通知して削除オプションを提供
+          _showFileNotFoundDialog(voiceMemo);
+          return;
+        }
+      } else if (voiceMemo.transcription == null || voiceMemo.transcription!.isEmpty) {
+        // ファイルパスが空で、書き起こしもない場合はエラー
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('再生できません: 音声ファイルが見つかりません')),
+        );
+        return;
+      }
+      
       if (_currentPlayingId == voiceMemo.id && _isPlaying) {
         await _audioPlayer.pause();
       } else {
         if (_currentPlayingId != voiceMemo.id) {
           await _audioPlayer.stop();
-          await _audioPlayer.play(DeviceFileSource(voiceMemo.filePath));
-          setState(() {
-            _currentPlayingId = voiceMemo.id;
-            // 録音中でない場合は、現在の書き起こしテキストをリセット
-            bool isRecording = _useImprovedService ? 
-              _improvedVoiceService.isListening :
-              _useEnhancedService ? 
-                _enhancedVoiceService.isRecording : 
-                _voiceMemoService.isRecording;
-            if (!isRecording) {
-              _currentTranscription = '';
-            }
-          });
+          
+          // 音声ファイルがある場合のみ再生
+          if (voiceMemo.filePath.isNotEmpty) {
+            await _audioPlayer.play(DeviceFileSource(voiceMemo.filePath));
+            setState(() {
+              _currentPlayingId = voiceMemo.id;
+              // 録音中でない場合は、現在の書き起こしテキストをリセット
+              bool isRecording = _useImprovedService ? 
+                _improvedVoiceService.isListening :
+                _useEnhancedService ? 
+                  _enhancedVoiceService.isRecording : 
+                  _voiceMemoService.isRecording;
+              if (!isRecording) {
+                _currentTranscription = '';
+              }
+            });
+          }
         } else {
           await _audioPlayer.resume();
         }
       }
     } catch (e) {
+      print('再生エラー詳細: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('再生エラー: $e')),
       );
     }
+  }
+  
+  // ファイルが見つからない場合のダイアログ
+  void _showFileNotFoundDialog(VoiceMemo voiceMemo) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('音声ファイルが見つかりません'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('「${voiceMemo.title}」の音声ファイルが見つかりませんでした。'),
+            const SizedBox(height: 8),
+            const Text('ファイルが削除されたか、移動された可能性があります。'),
+            if (voiceMemo.transcription != null && voiceMemo.transcription!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: const Text('※書き起こしテキストは保存されています'),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('閉じる'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _deleteVoiceMemo(voiceMemo);
+            },
+            child: const Text('削除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
   
   // 書き起こしテキストを表示するダイアログを表示

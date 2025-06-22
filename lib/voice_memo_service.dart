@@ -326,6 +326,31 @@ class VoiceMemoService {
       await _stopSpeechRecognition();
 
       if (path != null && _recordingStartTime != null) {
+        // ファイルの存在確認
+        final file = File(path);
+        final fileExists = await file.exists();
+        
+        if (!fileExists) {
+          onError?.call('録音ファイルが見つかりません: $path');
+          _currentRecordingPath = null;
+          _recordingStartTime = null;
+          return;
+        }
+        
+        // ファイルサイズの確認
+        final fileSize = await file.length();
+        if (fileSize <= 0) {
+          onError?.call('録音ファイルが空です: $path');
+          try {
+            await file.delete(); // 空ファイルを削除
+          } catch (e) {
+            print('空ファイル削除エラー: $e');
+          }
+          _currentRecordingPath = null;
+          _recordingStartTime = null;
+          return;
+        }
+        
         // 録音時間計算
         final duration = DateTime.now().difference(_recordingStartTime!);
         
@@ -343,41 +368,74 @@ class VoiceMemoService {
         );
 
         // 保存
-        await _saveVoiceMemo(voiceMemo);
-        onVoiceMemoCreated?.call(voiceMemo);
-        
-        // 書き起こしテキストがある場合は通知
-        if (transcriptionText != null && transcriptionText.isNotEmpty) {
-          onTranscriptionUpdated?.call(transcriptionText);
+        final saveSuccess = await _saveVoiceMemo(voiceMemo);
+        if (saveSuccess) {
+          onVoiceMemoCreated?.call(voiceMemo);
+          
+          // 書き起こしテキストがある場合は通知
+          if (transcriptionText != null && transcriptionText.isNotEmpty) {
+            onTranscriptionUpdated?.call(transcriptionText);
+          }
+          
+          print('録音を停止しました: $path (サイズ: ${fileSize}バイト)');
+          print('書き起こし: ${voiceMemo.transcription ?? "なし"}');
+        } else {
+          onError?.call('ボイスメモの保存に失敗しました');
         }
-        
-        print('録音を停止しました: $path');
-        print('書き起こし: ${voiceMemo.transcription ?? "なし"}');
+      } else {
+        onError?.call('録音ファイルの取得に失敗しました');
       }
 
       _currentRecordingPath = null;
       _recordingStartTime = null;
     } catch (e) {
+      print('録音停止エラー詳細: $e');
       onError?.call('録音停止エラー: $e');
+      _currentRecordingPath = null;
+      _recordingStartTime = null;
     }
   }
 
   // ボイスメモ保存（パブリック）
-  Future<void> saveVoiceMemo(VoiceMemo voiceMemo) async {
-    await _saveVoiceMemo(voiceMemo);
+  Future<bool> saveVoiceMemo(VoiceMemo voiceMemo) async {
+    return await _saveVoiceMemo(voiceMemo);
   }
 
   // ボイスメモ保存（プライベート）
-  Future<void> _saveVoiceMemo(VoiceMemo voiceMemo) async {
+  Future<bool> _saveVoiceMemo(VoiceMemo voiceMemo) async {
     try {
+      // ファイルパスが指定されている場合は存在確認
+      if (voiceMemo.filePath.isNotEmpty) {
+        final file = File(voiceMemo.filePath);
+        final exists = await file.exists();
+        
+        if (!exists) {
+          print('警告: ボイスメモのファイルが存在しません: ${voiceMemo.filePath}');
+          // 書き起こしがある場合は保存を続行
+          if (voiceMemo.transcription == null || voiceMemo.transcription!.isEmpty) {
+            onError?.call('ボイスメモのファイルが見つかりません: ${voiceMemo.filePath}');
+            return false;
+          }
+        }
+      }
+      
       final prefs = await SharedPreferences.getInstance();
       final voiceMemos = await getVoiceMemos();
       voiceMemos.insert(0, voiceMemo);
       
       final voiceMemosJson = voiceMemos.map((memo) => memo.toJson()).toList();
-      await prefs.setString('voice_memos', jsonEncode(voiceMemosJson));
+      final success = await prefs.setString('voice_memos', jsonEncode(voiceMemosJson));
+      
+      if (!success) {
+        onError?.call('ボイスメモのメタデータ保存に失敗しました');
+        return false;
+      }
+      
+      return true;
     } catch (e) {
+      print('ボイスメモ保存エラー詳細: $e');
       onError?.call('ボイスメモ保存エラー: $e');
+      return false;
     }
   }
 
