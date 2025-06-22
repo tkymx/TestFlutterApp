@@ -39,12 +39,7 @@ android {
             viewBinding false
         }
 
-        // Vosk model assets configuration
-        sourceSets {
-            main {
-                assets.srcDirs += "$buildDir/generated/assets"
-            }
-        }
+
 
         packagingOptions {
             pickFirst '**/libc++_shared.so'
@@ -87,12 +82,15 @@ android {
 // Vosk model UUID generation task (following vosk-android-demo pattern)
 tasks.register('genVoskModelUUID') {
     def uuid = UUID.randomUUID().toString()
-    def odir = file("$buildDir/generated/assets/vosk-model-small-ja-0.22")
+    def odir = file("src/main/assets/vosk-model-small-ja-0.22")
     def ofile = file("$odir/uuid")
     doLast {
-        mkdir odir
-        ofile.text = uuid
-        println "Generated Vosk model UUID: $uuid"
+        if (odir.exists()) {
+            ofile.text = uuid
+            println "Generated Vosk model UUID: $uuid"
+        } else {
+            println "Vosk model directory not found, skipping UUID generation"
+        }
     }
 }
 
