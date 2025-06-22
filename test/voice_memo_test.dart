@@ -52,24 +52,10 @@ void main() {
       
       expect(service.isRecording, false);
       expect(service.isBackgroundServiceRunning, false);
-      expect(service.shakeDetectionEnabled, false);
     });
   });
 
-  group('Shake Detection Tests', () {
-    test('Shake threshold calculation', () {
-      // 振動検知の閾値テスト
-      const double shakeThreshold = 15.0;
-      
-      // 通常の重力加速度（約9.8）
-      double normalAcceleration = 9.8;
-      expect(normalAcceleration < shakeThreshold, true);
-      
-      // 振動時の加速度（閾値を超える）
-      double shakeAcceleration = 20.0;
-      expect(shakeAcceleration > shakeThreshold, true);
-    });
-  });
+  // 振動検知機能は削除されました
 
   group('Platform Tests', () {
     test('Web platform detection', () {

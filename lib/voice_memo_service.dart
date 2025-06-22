@@ -1,15 +1,10 @@
-import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:record/record.dart';
-import 'package:sensors_plus/sensors_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'dart:convert';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
@@ -60,21 +55,12 @@ class VoiceMemoService {
 
   final AudioRecorder _recorder = AudioRecorder();
   final stt.SpeechToText _speechToText = stt.SpeechToText();
-  StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
-  
   bool _isRecording = false;
   bool _isBackgroundServiceRunning = false;
-  bool _shakeDetectionEnabled = false;
   String? _currentRecordingPath;
   DateTime? _recordingStartTime;
   String _recognizedText = '';
   bool _speechEnabled = false;
-  
-  // 振動検知のパラメータ
-  static const double _shakeThreshold = 15.0;
-  static const int _shakeTimeWindow = 500; // ミリ秒
-  List<double> _accelerationHistory = [];
-  DateTime _lastShakeTime = DateTime.now();
 
   // コールバック
   Function(VoiceMemo)? onVoiceMemoCreated;
@@ -84,7 +70,6 @@ class VoiceMemoService {
 
   bool get isRecording => _isRecording;
   bool get isBackgroundServiceRunning => _isBackgroundServiceRunning;
-  bool get shakeDetectionEnabled => _shakeDetectionEnabled;
 
   // 初期化
   Future<bool> initialize() async {
@@ -193,116 +178,11 @@ class VoiceMemoService {
 
   // バックグラウンドサービスの初期化
   Future<void> _initializeBackgroundService() async {
-    if (kIsWeb) return;
-
-    try {
-      final service = FlutterBackgroundService();
-      
-      await service.configure(
-        androidConfiguration: AndroidConfiguration(
-          onStart: onStart,
-          autoStart: false,
-          isForegroundMode: true,
-          notificationChannelId: 'voice_memo_channel',
-          initialNotificationTitle: 'ボイスメモ',
-          initialNotificationContent: '振動検知待機中...',
-          foregroundServiceNotificationId: 888,
-        ),
-        iosConfiguration: IosConfiguration(
-          autoStart: false,
-          onForeground: onStart,
-          onBackground: onIosBackground,
-        ),
-      );
-      
-      print('バックグラウンドサービスの初期化に成功しました');
-    } catch (e) {
-      print('バックグラウンドサービスの初期化エラー: $e');
-      // エラーが発生しても続行できるようにする
-    }
+    // バックグラウンドサービスは使用しないため空の実装
+    return;
   }
 
-  // 振動検知の開始
-  Future<void> startShakeDetection() async {
-    if (kIsWeb || _shakeDetectionEnabled) return;
 
-    try {
-      _shakeDetectionEnabled = true;
-      
-      // バックグラウンドサービス開始
-      await FlutterBackgroundService().startService();
-      _isBackgroundServiceRunning = true;
-
-      // 加速度センサーの監視開始
-      _accelerometerSubscription = accelerometerEvents.listen(_onAccelerometerEvent);
-      
-      print('振動検知を開始しました');
-    } catch (e) {
-      onError?.call('振動検知開始エラー: $e');
-      _shakeDetectionEnabled = false;
-    }
-  }
-
-  // 振動検知の停止
-  Future<void> stopShakeDetection() async {
-    if (!_shakeDetectionEnabled) return;
-
-    try {
-      _shakeDetectionEnabled = false;
-      
-      // 加速度センサーの監視停止
-      await _accelerometerSubscription?.cancel();
-      _accelerometerSubscription = null;
-      
-      // バックグラウンドサービス停止
-      FlutterBackgroundService().invoke('stop');
-      _isBackgroundServiceRunning = false;
-      
-      print('振動検知を停止しました');
-    } catch (e) {
-      onError?.call('振動検知停止エラー: $e');
-    }
-  }
-
-  // 加速度センサーイベント処理
-  void _onAccelerometerEvent(AccelerometerEvent event) {
-    if (!_shakeDetectionEnabled) return;
-
-    final acceleration = sqrt(
-      event.x * event.x + event.y * event.y + event.z * event.z
-    );
-
-    final now = DateTime.now();
-    
-    // 履歴に追加
-    _accelerationHistory.add(acceleration);
-    
-    // 古いデータを削除（時間窓を超えたもの）
-    _accelerationHistory.removeWhere((value) => 
-      now.difference(_lastShakeTime).inMilliseconds > _shakeTimeWindow
-    );
-
-    // 振動検知
-    if (acceleration > _shakeThreshold && 
-        now.difference(_lastShakeTime).inMilliseconds > _shakeTimeWindow) {
-      
-      _lastShakeTime = now;
-      _onShakeDetected();
-    }
-  }
-
-  // 振動検知時の処理
-  void _onShakeDetected() {
-    print('振動を検知しました！');
-    
-    if (_isRecording) {
-      // 録音中の場合は停止
-      stopRecording();
-    } else {
-      // 録音していない場合は開始
-      startRecording();
-    }
-  }
 
   // 音声認識の開始
   Future<void> _startSpeechRecognition() async {
@@ -369,10 +249,6 @@ class VoiceMemoService {
       
       // 音声認識開始
       await _startSpeechRecognition();
-      
-      // バックグラウンドサービスに通知
-      FlutterBackgroundService().invoke('recording_started');
-      
       print('録音を開始しました: $_currentRecordingPath');
     } catch (e) {
       onError?.call('録音開始エラー: $e');
@@ -408,9 +284,6 @@ class VoiceMemoService {
         // 保存
         await _saveVoiceMemo(voiceMemo);
         onVoiceMemoCreated?.call(voiceMemo);
-        
-        // バックグラウンドサービスに通知
-        FlutterBackgroundService().invoke('recording_stopped');
         
         print('録音を停止しました: $path');
         print('書き起こし: ${voiceMemo.transcription ?? "なし"}');
@@ -478,41 +351,8 @@ class VoiceMemoService {
 
   // リソース解放
   void dispose() {
-    _accelerometerSubscription?.cancel();
     _recorder.dispose();
     _speechToText.cancel();
   }
 }
 
-// バックグラウンドサービスのエントリーポイント
-@pragma('vm:entry-point')
-void onStart(ServiceInstance service) async {
-  if (service is AndroidServiceInstance) {
-    service.on('stop').listen((event) {
-      service.stopSelf();
-    });
-
-    service.on('recording_started').listen((event) {
-      if (service is AndroidServiceInstance) {
-        service.setForegroundNotificationInfo(
-          title: 'ボイスメモ',
-          content: '録音中...',
-        );
-      }
-    });
-
-    service.on('recording_stopped').listen((event) {
-      if (service is AndroidServiceInstance) {
-        service.setForegroundNotificationInfo(
-          title: 'ボイスメモ',
-          content: '振動検知待機中...',
-        );
-      }
-    });
-  }
-}
-
-@pragma('vm:entry-point')
-Future<bool> onIosBackground(ServiceInstance service) async {
-  return true;
-}
