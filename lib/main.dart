@@ -27,10 +27,11 @@ class MyApp extends StatelessWidget {
           centerTitle: true,
           elevation: 2,
         ),
-        cardTheme: const CardThemeData(
+        // cardThemeをカスタマイズするが、直接プロパティを設定
+        cardTheme: CardTheme(
           elevation: 2,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
@@ -47,10 +48,11 @@ class MyApp extends StatelessWidget {
           centerTitle: true,
           elevation: 2,
         ),
-        cardTheme: const CardThemeData(
+        // こちらも同様に修正
+        cardTheme: CardTheme(
           elevation: 2,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
