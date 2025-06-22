@@ -30,38 +30,91 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
   }
 
   void _initializeService() async {
-    final success = await _voiceMemoService.initialize();
-    if (success) {
+    try {
+      // 初期化を3回まで試行
+      bool success = false;
+      int attempts = 0;
+      const maxAttempts = 3;
+      
+      while (!success && attempts < maxAttempts) {
+        attempts++;
+        print('ボイスメモサービス初期化: 試行 $attempts/$maxAttempts');
+        
+        success = await _voiceMemoService.initialize();
+        
+        if (!success && attempts < maxAttempts) {
+          // 少し待ってから再試行
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+      }
+      
+      if (success) {
+        print('ボイスメモサービスの初期化に成功しました');
+        setState(() {
+          _isInitialized = true;
+        });
+        
+        // コールバック設定
+        _voiceMemoService.onVoiceMemoCreated = (voiceMemo) {
+          setState(() {
+            _voiceMemos.insert(0, voiceMemo);
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('新しいボイスメモが作成されました')),
+            );
+          }
+        };
+        
+        _voiceMemoService.onRecordingStateChanged = (isRecording) {
+          if (mounted) {
+            setState(() {});
+          }
+        };
+        
+        _voiceMemoService.onError = (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(error)),
+            );
+          }
+        };
+        
+        // 既存のボイスメモを読み込み
+        _loadVoiceMemos();
+      } else {
+        print('ボイスメモサービスの初期化に失敗しました（$attempts回試行）');
+        
+        // 初期化失敗でも画面表示はする（制限付き機能として）
+        setState(() {
+          _isInitialized = true;  // UIを表示するために true に設定
+        });
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('ボイスメモサービスの初期化に失敗しました。一部機能が制限されます。'),
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('ボイスメモサービス初期化中の例外: $e');
+      
+      // エラーが発生しても画面表示はする
       setState(() {
         _isInitialized = true;
       });
       
-      // コールバック設定
-      _voiceMemoService.onVoiceMemoCreated = (voiceMemo) {
-        setState(() {
-          _voiceMemos.insert(0, voiceMemo);
-        });
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('新しいボイスメモが作成されました')),
+          SnackBar(
+            content: Text('初期化エラー: $e'),
+            duration: const Duration(seconds: 5),
+          ),
         );
-      };
-      
-      _voiceMemoService.onRecordingStateChanged = (isRecording) {
-        setState(() {});
-      };
-      
-      _voiceMemoService.onError = (error) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error)),
-        );
-      };
-      
-      // 既存のボイスメモを読み込み
-      _loadVoiceMemos();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ボイスメモサービスの初期化に失敗しました')),
-      );
+      }
     }
   }
 
