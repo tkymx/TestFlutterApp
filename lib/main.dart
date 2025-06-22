@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'voice_memo_page.dart';
+import 'settings_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -78,6 +79,7 @@ class _MainPageState extends State<MainPage> {
   final List<Widget> _pages = [
     const TaskListPage(title: '音声タスクリスト'),
     const VoiceMemoPage(),
+    const SettingsPage(),
   ];
 
   void _onItemTapped(int index) {
@@ -91,6 +93,7 @@ class _MainPageState extends State<MainPage> {
     return Scaffold(
       body: _pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
             icon: Icon(Icons.task_alt),
@@ -99,6 +102,10 @@ class _MainPageState extends State<MainPage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.mic),
             label: 'ボイスメモ',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: '設定',
           ),
         ],
         currentIndex: _selectedIndex,
