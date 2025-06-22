@@ -168,10 +168,13 @@ class _TaskListPageState extends State<TaskListPage> {
   
   // 各モードの設定値
   final Map<SpeechStopMode, Duration> _pauseForDurations = {
-    SpeechStopMode.gradual: const Duration(seconds: 10),    // 段階入力: 10秒
-    SpeechStopMode.manual: const Duration(seconds: 0),      // 手動入力: 自動停止なし
-    SpeechStopMode.unlimited: const Duration(seconds: 300), // 無制限: 5分（事実上無制限）
+    SpeechStopMode.gradual: const Duration(seconds: 10),       // 段階入力: 10秒
+    SpeechStopMode.manual: const Duration(seconds: 0),         // 手動入力: 自動停止なし
+    SpeechStopMode.unlimited: const Duration(hours: 1),        // 無制限: 1時間（事実上無制限）
   };
+  
+  // 自動再開機能の設定
+  bool _autoRestart = false;
 
   @override
   void initState() {
@@ -185,8 +188,10 @@ class _TaskListPageState extends State<TaskListPage> {
   Future<void> _loadSpeechSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final stopModeIndex = prefs.getInt('speech_stop_mode') ?? SpeechStopMode.gradual.index;
+    final autoRestart = prefs.getBool('speech_auto_restart') ?? false;
     setState(() {
       _speechStopMode = SpeechStopMode.values[stopModeIndex];
+      _autoRestart = autoRestart;
     });
   }
   
@@ -194,6 +199,7 @@ class _TaskListPageState extends State<TaskListPage> {
   Future<void> _saveSpeechSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('speech_stop_mode', _speechStopMode.index);
+    await prefs.setBool('speech_auto_restart', _autoRestart);
   }
 
   void _initSpeech() async {
@@ -226,10 +232,30 @@ class _TaskListPageState extends State<TaskListPage> {
           }
         },
         onStatus: (status) {
+          print('音声認識ステータス変更: $status');
           if (status == 'notListening' && _speechListening) {
+            // 音声認識が自動的に停止した場合
             setState(() {
               _speechListening = false;
             });
+            
+            // 無制限モードまたは手動モードで自動再開が有効な場合は再開する
+            if (mounted && (_speechStopMode == SpeechStopMode.unlimited || 
+                (_speechStopMode == SpeechStopMode.manual && _autoRestart))) {
+              print('音声認識を自動的に再開します');
+              // 少し遅延を入れてから再開
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (mounted) {
+                  _startListening();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('音声認識を自動的に再開しました'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                }
+              });
+            }
           }
         },
       );
@@ -254,9 +280,16 @@ class _TaskListPageState extends State<TaskListPage> {
       // 手動モードの場合はpauseForを無効にする特別な処理
       final effectivePauseFor = _speechStopMode == SpeechStopMode.manual ? null : pauseFor;
       
+      // listenForの時間を設定（無制限モードの場合は非常に長い時間に設定）
+      final listenFor = _speechStopMode == SpeechStopMode.unlimited 
+          ? const Duration(hours: 1)  // 1時間（事実上無制限）
+          : const Duration(seconds: 60);  // 通常モード
+      
+      print('音声認識開始: モード=${_speechStopMode.toString()}, pauseFor=${effectivePauseFor?.inSeconds ?? "null"}秒, listenFor=${listenFor.inSeconds}秒');
+      
       await _speechToText.listen(
         onResult: _onSpeechResult,
-        listenFor: const Duration(seconds: 60),
+        listenFor: listenFor,
         pauseFor: effectivePauseFor,
         localeId: 'ja_JP',
         listenOptions: SpeechListenOptions(
@@ -269,10 +302,23 @@ class _TaskListPageState extends State<TaskListPage> {
         _speechListening = true;
       });
       
-      // 手動モードの場合はユーザーに通知
-      if (_speechStopMode == SpeechStopMode.manual && mounted) {
+      // モードに応じたユーザー通知
+      if (mounted) {
+        String message = '';
+        switch (_speechStopMode) {
+          case SpeechStopMode.gradual:
+            message = '段階入力モード: 10秒間話さないと自動停止します';
+            break;
+          case SpeechStopMode.manual:
+            message = '手動入力モード: 停止ボタンを押して終了してください';
+            break;
+          case SpeechStopMode.unlimited:
+            message = '無制限モード: 非常に長い間隔で自動停止します';
+            break;
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('手動入力モード: 停止ボタンを押して終了してください')),
+          SnackBar(content: Text(message)),
         );
       }
     } catch (e) {
@@ -681,6 +727,7 @@ class _TaskListPageState extends State<TaskListPage> {
       builder: (context) {
         // ダイアログ内で一時的に使用する変数
         SpeechStopMode tempMode = _speechStopMode;
+        bool tempAutoRestart = _autoRestart;
         
         return StatefulBuilder(
           builder: (context, setState) {
@@ -722,7 +769,7 @@ class _TaskListPageState extends State<TaskListPage> {
                   // 無制限オプション
                   RadioListTile<SpeechStopMode>(
                     title: const Text('無制限'),
-                    subtitle: const Text('非常に長い間隔（5分）で自動停止'),
+                    subtitle: const Text('非常に長い間隔（1時間）で自動停止'),
                     value: SpeechStopMode.unlimited,
                     groupValue: tempMode,
                     onChanged: (value) {
@@ -731,6 +778,34 @@ class _TaskListPageState extends State<TaskListPage> {
                       });
                     },
                   ),
+                  
+                  const Divider(),
+                  
+                  // 自動再開オプション
+                  CheckboxListTile(
+                    title: const Text('自動再開'),
+                    subtitle: const Text('音声認識が停止した場合に自動的に再開する'),
+                    value: tempAutoRestart,
+                    onChanged: (value) {
+                      setState(() {
+                        tempAutoRestart = value!;
+                      });
+                    },
+                  ),
+                  
+                  // 注意書き
+                  if (tempMode == SpeechStopMode.unlimited || tempAutoRestart)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.yellow.shade100,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        '注意: 無制限モードや自動再開を使用すると、バッテリー消費が増加する可能性があります。',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
                 ],
               ),
               actions: [
@@ -743,6 +818,7 @@ class _TaskListPageState extends State<TaskListPage> {
                     // 設定を保存して適用
                     this.setState(() {
                       _speechStopMode = tempMode;
+                      _autoRestart = tempAutoRestart;
                     });
                     _saveSpeechSettings();
                     Navigator.of(context).pop();
