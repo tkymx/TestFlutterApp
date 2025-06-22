@@ -202,11 +202,11 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
   }
 
   void _startManualRecording() async {
-    await _voiceService.startRecording();
+    await _voiceService.startVoiceMemoRecording();
   }
 
   void _stopManualRecording() async {
-    await _voiceService.stopRecording();
+    await _voiceService.stopVoiceMemoRecording();
   }
 
   void _playVoiceMemo(VoiceMemo voiceMemo) async {
