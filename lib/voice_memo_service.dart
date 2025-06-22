@@ -80,24 +80,57 @@ class VoiceMemoService {
   // 初期化
   Future<bool> initialize() async {
     try {
+      print('ボイスメモサービスの初期化を開始します...');
+      
       // Webプラットフォームでは制限された機能のみ
       if (kIsWeb) {
+        print('Webプラットフォームでは機能制限があります');
         onError?.call('Webプラットフォームではボイスメモ機能は制限されています');
         return false;
       }
 
-      // 権限チェック
-      if (!await _checkPermissions()) {
-        return false;
+      // 権限チェック - 失敗しても続行
+      bool permissionsGranted = await _checkPermissions();
+      if (!permissionsGranted) {
+        print('権限が付与されていません。一部機能が制限される可能性があります');
+        // 権限がなくても続行する場合はコメントを外す
+        // return false;
       }
 
       // バックグラウンドサービスの初期化
       await _initializeBackgroundService();
       
+      // 録音機能の初期化確認
+      bool recorderInitialized = await _initializeRecorder();
+      if (!recorderInitialized) {
+        print('録音機能の初期化に失敗しました');
+        onError?.call('録音機能の初期化に失敗しました');
+        return false;
+      }
+      
+      print('ボイスメモサービスの初期化が完了しました');
       return true;
     } catch (e) {
+      print('初期化エラー: $e');
       onError?.call('初期化エラー: $e');
       return false;
+    }
+  }
+  
+  // 録音機能の初期化確認
+  Future<bool> _initializeRecorder() async {
+    try {
+      // 録音機能が利用可能か確認
+      final isRecorderInitialized = await _recorder.isEncoderSupported(
+        AudioEncoder.aacLc,
+      );
+      
+      print('録音機能初期化状態: $isRecorderInitialized');
+      return isRecorderInitialized;
+    } catch (e) {
+      print('録音機能初期化エラー: $e');
+      // エラーが発生しても続行を試みる
+      return true;
     }
   }
 
@@ -105,38 +138,71 @@ class VoiceMemoService {
   Future<bool> _checkPermissions() async {
     if (kIsWeb) return false;
 
-    final permissions = [
-      Permission.microphone,
-      Permission.storage,
-    ];
+    try {
+      // Android 13 (API 33)以降ではストレージ権限が変更されているため、
+      // Permission.storageの代わりに適切な権限を使用
+      final permissions = [
+        Permission.microphone,
+      ];
+      
+      // Android 13未満の場合はストレージ権限も追加
+      if (!kIsWeb && Platform.isAndroid) {
+        if (int.parse(Platform.version) < 33) {
+          permissions.add(Permission.storage);
+        } else {
+          // Android 13以降では必要に応じて以下の権限を使用
+          // permissions.add(Permission.photos);
+          // permissions.add(Permission.videos);
+          // permissions.add(Permission.audio);
+        }
+      }
 
-    Map<Permission, PermissionStatus> statuses = await permissions.request();
-    
-    return statuses.values.every((status) => status == PermissionStatus.granted);
+      // 権限リクエスト
+      Map<Permission, PermissionStatus> statuses = await permissions.request();
+      
+      // すべての権限が許可されているか確認
+      bool allGranted = statuses.values.every((status) => 
+        status == PermissionStatus.granted || 
+        status == PermissionStatus.limited);
+      
+      print('権限チェック結果: $allGranted (${statuses.toString()})');
+      return allGranted;
+    } catch (e) {
+      print('権限チェックエラー: $e');
+      // エラーが発生した場合でも処理を続行
+      return true;
+    }
   }
 
   // バックグラウンドサービスの初期化
   Future<void> _initializeBackgroundService() async {
     if (kIsWeb) return;
 
-    final service = FlutterBackgroundService();
-    
-    await service.configure(
-      androidConfiguration: AndroidConfiguration(
-        onStart: onStart,
-        autoStart: false,
-        isForegroundMode: true,
-        notificationChannelId: 'voice_memo_channel',
-        initialNotificationTitle: 'ボイスメモ',
-        initialNotificationContent: '振動検知待機中...',
-        foregroundServiceNotificationId: 888,
-      ),
-      iosConfiguration: IosConfiguration(
-        autoStart: false,
-        onForeground: onStart,
-        onBackground: onIosBackground,
-      ),
-    );
+    try {
+      final service = FlutterBackgroundService();
+      
+      await service.configure(
+        androidConfiguration: AndroidConfiguration(
+          onStart: onStart,
+          autoStart: false,
+          isForegroundMode: true,
+          notificationChannelId: 'voice_memo_channel',
+          initialNotificationTitle: 'ボイスメモ',
+          initialNotificationContent: '振動検知待機中...',
+          foregroundServiceNotificationId: 888,
+        ),
+        iosConfiguration: IosConfiguration(
+          autoStart: false,
+          onForeground: onStart,
+          onBackground: onIosBackground,
+        ),
+      );
+      
+      print('バックグラウンドサービスの初期化に成功しました');
+    } catch (e) {
+      print('バックグラウンドサービスの初期化エラー: $e');
+      // エラーが発生しても続行できるようにする
+    }
   }
 
   // 振動検知の開始
