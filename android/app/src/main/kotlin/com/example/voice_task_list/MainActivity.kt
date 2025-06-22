@@ -106,45 +106,134 @@ class MainActivity: FlutterActivity() {
             try {
                 Log.d(TAG, "Vosk音声認識の初期化を開始...")
                 
-                // StorageServiceを使用してモデルをダウンロード・展開
-                StorageService.unpack(this@MainActivity, "vosk-model-small-ja-0.22",
-                    "model-ja",
-                    { modelPath ->
-                        try {
-                            Log.d(TAG, "モデルパス: $modelPath")
-                            try {
-                                model = Model(modelPath.toString())
-                                isInitialized.set(true)
-                                runOnUiThread {
-                                    Log.d(TAG, "Vosk音声認識の初期化に成功しました")
-                                    result.success(true)
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "モデル読み込みエラー", e)
-                                runOnUiThread {
-                                    result.error("MODEL_ERROR", "音声認識モデルの読み込みに失敗しました: ${e.message}", null)
-                                }
-                            }
-                        } catch (e: IOException) {
-                            Log.e(TAG, "モデル読み込みエラー", e)
-                            runOnUiThread {
-                                result.error("MODEL_ERROR", "音声認識モデルの読み込みに失敗しました: ${e.message}", null)
-                            }
-                        }
-                    },
-                    { exception ->
-                        Log.e(TAG, "モデルダウンロードエラー", exception)
+                // 内部ストレージのモデルディレクトリを確認
+                val modelDir = File(filesDir, "vosk-model-small-ja-0.22")
+                if (!modelDir.exists()) {
+                    modelDir.mkdirs()
+                    
+                    // assetsからモデルファイルをコピー
+                    try {
+                        Log.d(TAG, "assetsからモデルファイルをコピー中...")
+                        copyAssetsToInternal("vosk-model-small-ja-0.22", modelDir)
+                        Log.d(TAG, "モデルファイルのコピーが完了しました")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "モデルファイルコピーエラー", e)
                         runOnUiThread {
-                            result.error("DOWNLOAD_ERROR", "音声認識モデルのダウンロードに失敗しました: ${exception.message}", null)
+                            result.error("COPY_ERROR", "モデルファイルのコピーに失敗しました: ${e.message}", null)
                         }
+                        return@launch
                     }
-                )
+                }
+                
+                try {
+                    Log.d(TAG, "モデルパス: ${modelDir.absolutePath}")
+                    model = Model(modelDir.absolutePath)
+                    isInitialized.set(true)
+                    runOnUiThread {
+                        Log.d(TAG, "Vosk音声認識の初期化に成功しました")
+                        result.success(true)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "モデル読み込みエラー", e)
+                    runOnUiThread {
+                        result.error("MODEL_ERROR", "音声認識モデルの読み込みに失敗しました: ${e.message}", null)
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "初期化エラー", e)
                 runOnUiThread {
                     result.error("INITIALIZATION_ERROR", "初期化に失敗しました: ${e.message}", null)
                 }
             }
+        }
+    }
+
+    private fun copyModelFiles(targetDir: File) {
+        try {
+            // 一般的なVoskモデルファイル構造
+            val modelFiles = listOf(
+                "am/final.mdl",
+                "graph/HCLG.fst", 
+                "graph/phones.txt",
+                "graph/words.txt",
+                "ivector/final.dubm",
+                "ivector/final.ie",
+                "ivector/final.mat",
+                "ivector/global_cmvn.stats",
+                "ivector/online_cmvn.conf",
+                "ivector/splice.conf",
+                "conf/mfcc.conf",
+                "conf/model.conf"
+            )
+            
+            for (modelFile in modelFiles) {
+                try {
+                    val inputStream = assets.open("vosk-model/$modelFile")
+                    val targetFile = File(targetDir, modelFile)
+                    
+                    // 親ディレクトリを作成
+                    targetFile.parentFile?.mkdirs()
+                    
+                    val outputStream = FileOutputStream(targetFile)
+                    inputStream.copyTo(outputStream)
+                    inputStream.close()
+                    outputStream.close()
+                    
+                    Log.d(TAG, "コピー完了: $modelFile")
+                } catch (e: Exception) {
+                    Log.w(TAG, "ファイルコピー失敗: $modelFile - ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "モデルファイルコピーエラー", e)
+            throw e
+        }
+    }
+
+    private fun copyAssetsToInternal(assetPath: String, targetDir: File) {
+        try {
+            val assetManager = assets
+            val files = assetManager.list(assetPath)
+            
+            if (files == null || files.isEmpty()) {
+                // ファイルの場合
+                val inputStream = assetManager.open(assetPath)
+                val fileName = File(assetPath).name
+                val targetFile = File(targetDir, fileName)
+                
+                // 親ディレクトリを作成
+                targetFile.parentFile?.mkdirs()
+                
+                val outputStream = FileOutputStream(targetFile)
+                inputStream.copyTo(outputStream)
+                inputStream.close()
+                outputStream.close()
+                Log.d(TAG, "ファイルコピー完了: $fileName")
+            } else {
+                // ディレクトリの場合
+                for (file in files) {
+                    val subAssetPath = "$assetPath/$file"
+                    val subTargetFile = File(targetDir, file)
+                    
+                    // サブディレクトリの場合
+                    val subFiles = assetManager.list(subAssetPath)
+                    if (subFiles != null && subFiles.isNotEmpty()) {
+                        subTargetFile.mkdirs()
+                        copyAssetsToInternal(subAssetPath, subTargetFile)
+                    } else {
+                        // ファイルの場合
+                        val inputStream = assetManager.open(subAssetPath)
+                        val outputStream = FileOutputStream(subTargetFile)
+                        inputStream.copyTo(outputStream)
+                        inputStream.close()
+                        outputStream.close()
+                        Log.d(TAG, "ファイルコピー完了: $subAssetPath")
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Assetsコピーエラー: $assetPath", e)
+            throw e
         }
     }
 
