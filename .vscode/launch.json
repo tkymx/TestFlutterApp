@@ -5,9 +5,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Flutter: Attach to Device",
+            "name": "Flutter (Android Emulator)",
             "type": "dart",
-            "request": "attach"
+            "request": "launch",
+            "program": "lib/main.dart",
+            "deviceId": "emulator-5554"
         },
         {
             "name": "Flutter",
