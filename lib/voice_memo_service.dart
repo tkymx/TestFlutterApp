@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'dart:convert';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class VoiceMemo {
   String id;
@@ -18,6 +19,7 @@ class VoiceMemo {
   String title;
   DateTime createdAt;
   Duration duration;
+  String? transcription; // 音声の書き起こしテキスト
 
   VoiceMemo({
     required this.id,
@@ -25,6 +27,7 @@ class VoiceMemo {
     required this.title,
     required this.createdAt,
     this.duration = Duration.zero,
+    this.transcription,
   });
 
   Map<String, dynamic> toJson() {
@@ -34,6 +37,7 @@ class VoiceMemo {
       'title': title,
       'createdAt': createdAt.toIso8601String(),
       'duration': duration.inMilliseconds,
+      'transcription': transcription,
     };
   }
 
@@ -44,6 +48,7 @@ class VoiceMemo {
       title: json['title'],
       createdAt: DateTime.parse(json['createdAt']),
       duration: Duration(milliseconds: json['duration'] ?? 0),
+      transcription: json['transcription'],
     );
   }
 }
@@ -54,6 +59,7 @@ class VoiceMemoService {
   VoiceMemoService._internal();
 
   final AudioRecorder _recorder = AudioRecorder();
+  final stt.SpeechToText _speechToText = stt.SpeechToText();
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   
   bool _isRecording = false;
@@ -61,6 +67,8 @@ class VoiceMemoService {
   bool _shakeDetectionEnabled = false;
   String? _currentRecordingPath;
   DateTime? _recordingStartTime;
+  String _recognizedText = '';
+  bool _speechEnabled = false;
   
   // 振動検知のパラメータ
   static const double _shakeThreshold = 15.0;
@@ -72,6 +80,7 @@ class VoiceMemoService {
   Function(VoiceMemo)? onVoiceMemoCreated;
   Function(bool)? onRecordingStateChanged;
   Function(String)? onError;
+  Function(String)? onTranscriptionUpdated;
 
   bool get isRecording => _isRecording;
   bool get isBackgroundServiceRunning => _isBackgroundServiceRunning;
@@ -106,6 +115,14 @@ class VoiceMemoService {
         print('録音機能の初期化に失敗しました');
         onError?.call('録音機能の初期化に失敗しました');
         return false;
+      }
+      
+      // 音声認識機能の初期化
+      _speechEnabled = await _speechToText.initialize();
+      if (!_speechEnabled) {
+        print('音声認識機能の初期化に失敗しました。書き起こし機能が制限されます');
+      } else {
+        print('音声認識機能の初期化に成功しました');
       }
       
       print('ボイスメモサービスの初期化が完了しました');
@@ -287,6 +304,44 @@ class VoiceMemoService {
     }
   }
 
+  // 音声認識の開始
+  Future<void> _startSpeechRecognition() async {
+    if (!_speechEnabled) return;
+    
+    _recognizedText = '';
+    
+    try {
+      await _speechToText.listen(
+        onResult: (result) {
+          _recognizedText = result.recognizedWords;
+          onTranscriptionUpdated?.call(_recognizedText);
+          print('認識テキスト: $_recognizedText');
+        },
+        listenFor: const Duration(minutes: 30), // 長時間の録音に対応
+        pauseFor: const Duration(seconds: 3),
+        partialResults: true,
+        localeId: 'ja_JP', // 日本語設定
+        cancelOnError: false,
+        listenMode: stt.ListenMode.dictation,
+      );
+      print('音声認識を開始しました');
+    } catch (e) {
+      print('音声認識開始エラー: $e');
+    }
+  }
+
+  // 音声認識の停止
+  Future<void> _stopSpeechRecognition() async {
+    if (!_speechEnabled) return;
+    
+    try {
+      await _speechToText.stop();
+      print('音声認識を停止しました');
+    } catch (e) {
+      print('音声認識停止エラー: $e');
+    }
+  }
+
   // 録音開始
   Future<void> startRecording() async {
     if (_isRecording || kIsWeb) return;
@@ -309,7 +364,11 @@ class VoiceMemoService {
 
       _isRecording = true;
       _recordingStartTime = DateTime.now();
+      _recognizedText = ''; // 認識テキストをリセット
       onRecordingStateChanged?.call(true);
+      
+      // 音声認識開始
+      await _startSpeechRecognition();
       
       // バックグラウンドサービスに通知
       FlutterBackgroundService().invoke('recording_started');
@@ -328,6 +387,9 @@ class VoiceMemoService {
       final path = await _recorder.stop();
       _isRecording = false;
       onRecordingStateChanged?.call(false);
+      
+      // 音声認識停止
+      await _stopSpeechRecognition();
 
       if (path != null && _recordingStartTime != null) {
         // 録音時間計算
@@ -340,6 +402,7 @@ class VoiceMemoService {
           title: 'ボイスメモ ${DateTime.now().month}/${DateTime.now().day} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
           createdAt: _recordingStartTime!,
           duration: duration,
+          transcription: _recognizedText.isNotEmpty ? _recognizedText : null,
         );
 
         // 保存
@@ -350,6 +413,7 @@ class VoiceMemoService {
         FlutterBackgroundService().invoke('recording_stopped');
         
         print('録音を停止しました: $path');
+        print('書き起こし: ${voiceMemo.transcription ?? "なし"}');
       }
 
       _currentRecordingPath = null;
@@ -416,6 +480,7 @@ class VoiceMemoService {
   void dispose() {
     _accelerometerSubscription?.cancel();
     _recorder.dispose();
+    _speechToText.cancel();
   }
 }
 

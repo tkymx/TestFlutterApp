@@ -21,6 +21,7 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
   bool _isPlaying = false;
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
+  String _currentTranscription = '';
 
   @override
   void initState() {
@@ -77,6 +78,14 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(error)),
             );
+          }
+        };
+        
+        _voiceMemoService.onTranscriptionUpdated = (text) {
+          if (mounted) {
+            setState(() {
+              _currentTranscription = text;
+            });
           }
         };
         
@@ -181,6 +190,10 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
           await _audioPlayer.play(DeviceFileSource(voiceMemo.filePath));
           setState(() {
             _currentPlayingId = voiceMemo.id;
+            // 録音中でない場合は、現在の書き起こしテキストをリセット
+            if (!_voiceMemoService.isRecording) {
+              _currentTranscription = '';
+            }
           });
         } else {
           await _audioPlayer.resume();
@@ -200,6 +213,10 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
       _isPlaying = false;
       _currentPosition = Duration.zero;
       _totalDuration = Duration.zero;
+      // 録音中でない場合は、現在の書き起こしテキストをリセット
+      if (!_voiceMemoService.isRecording) {
+        _currentTranscription = '';
+      }
     });
   }
 
@@ -369,38 +386,75 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                           : Colors.grey.withOpacity(0.3)),
                     ),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  child: Column(
                     children: [
-                      Icon(
-                        _voiceMemoService.isRecording 
-                          ? Icons.fiber_manual_record
-                          : (_voiceMemoService.shakeDetectionEnabled 
-                            ? Icons.vibration
-                            : Icons.pause_circle_outline),
-                        color: _voiceMemoService.isRecording 
-                          ? Colors.red
-                          : (_voiceMemoService.shakeDetectionEnabled 
-                            ? Colors.green
-                            : Colors.grey),
-                        size: 20,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            _voiceMemoService.isRecording 
+                              ? Icons.fiber_manual_record
+                              : (_voiceMemoService.shakeDetectionEnabled 
+                                ? Icons.vibration
+                                : Icons.pause_circle_outline),
+                            color: _voiceMemoService.isRecording 
+                              ? Colors.red
+                              : (_voiceMemoService.shakeDetectionEnabled 
+                                ? Colors.green
+                                : Colors.grey),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _voiceMemoService.isRecording 
+                              ? '録音中...'
+                              : (_voiceMemoService.shakeDetectionEnabled 
+                                ? '振動検知待機中'
+                                : '停止中'),
+                            style: TextStyle(
+                              color: _voiceMemoService.isRecording 
+                                ? Colors.red
+                                : (_voiceMemoService.shakeDetectionEnabled 
+                                  ? Colors.green
+                                  : Colors.grey),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _voiceMemoService.isRecording 
-                          ? '録音中...'
-                          : (_voiceMemoService.shakeDetectionEnabled 
-                            ? '振動検知待機中'
-                            : '停止中'),
-                        style: TextStyle(
-                          color: _voiceMemoService.isRecording 
-                            ? Colors.red
-                            : (_voiceMemoService.shakeDetectionEnabled 
-                              ? Colors.green
-                              : Colors.grey),
-                          fontWeight: FontWeight.bold,
+                      // 録音中の書き起こしテキスト表示
+                      if (_voiceMemoService.isRecording && _currentTranscription.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Container(
+                            padding: const EdgeInsets.all(8.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4.0),
+                              border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '書き起こし:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _currentTranscription,
+                                  style: const TextStyle(fontSize: 14),
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -515,6 +569,37 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                                 '長さ: ${_formatDuration(memo.duration)}',
                                 style: const TextStyle(fontSize: 12),
                               ),
+                              if (memo.transcription != null && memo.transcription!.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4.0),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6.0),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(4.0),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          '書き起こし:',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          memo.transcription!,
+                                          style: const TextStyle(fontSize: 13),
+                                          maxLines: 3,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                           trailing: IconButton(
