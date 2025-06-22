@@ -654,12 +654,23 @@ class UnifiedVoiceService {
       
       final duration = DateTime.now().difference(startTime);
       
-      // 録音後に音声ファイルから書き起こしを実行
+      // 録音後にVoskを使って音声ファイルから書き起こしを実行
       String? transcriptionText;
-      try {
-        transcriptionText = await transcribeAudioFile(path);
-      } catch (e) {
-        print('書き起こし失敗: $e');
+      if (_speechEnabled) {
+        onStatusChanged?.call('Voskで書き起こし中...');
+        try {
+          transcriptionText = await transcribeAudioFile(path);
+          if (transcriptionText != null && transcriptionText.isNotEmpty) {
+            print('Vosk書き起こし成功: $transcriptionText');
+          } else {
+            print('Vosk書き起こし結果なし');
+          }
+        } catch (e) {
+          print('Vosk書き起こし失敗: $e');
+          transcriptionText = null;
+        }
+      } else {
+        print('音声認識が無効のため書き起こしをスキップ');
         transcriptionText = null;
       }
       
@@ -687,12 +698,12 @@ class UnifiedVoiceService {
         onVoiceMemoCreated?.call(voiceMemo);
         if (transcriptionText != null && transcriptionText.isNotEmpty) {
           onTranscriptionUpdated?.call(transcriptionText);
-          onStatusChanged?.call('録音完了 - 書き起こし成功');
+          onStatusChanged?.call('ボイスメモ録音完了 - Vosk書き起こし成功');
         } else {
-          onStatusChanged?.call('録音完了 - 書き起こしなし');
+          onStatusChanged?.call('ボイスメモ録音完了 - 書き起こしなし');
         }
-        print('録音を停止しました: $path (サイズ: ${(fileSize / 1024).toStringAsFixed(1)}KB)');
-        print('書き起こし: ${voiceMemo.transcription ?? "なし"}');
+        print('ボイスメモ録音を停止しました: $path (サイズ: ${(fileSize / 1024).toStringAsFixed(1)}KB)');
+        print('Vosk書き起こし: ${voiceMemo.transcription ?? "なし"}');
       } else {
         onError?.call('ボイスメモの保存に失敗しました');
       }
@@ -702,7 +713,7 @@ class UnifiedVoiceService {
     }
   }
 
-  /// 音声ファイルから書き起こしを行う（Android Speech Recognition API使用）
+  /// 音声ファイルから書き起こしを行う（Vosk Speech Recognition API使用）
   Future<String?> transcribeAudioFile(String filePath) async {
     try {
       if (kIsWeb) {
@@ -712,8 +723,8 @@ class UnifiedVoiceService {
         return 'Web環境では音声ファイルからの書き起こしに制限があります';
       }
       
-      // モバイル環境では Android Speech Recognition API を使用
-      onStatusChanged?.call('書き起こし中...');
+      // モバイル環境では Vosk Speech Recognition API を使用
+      onStatusChanged?.call('Voskで書き起こし中...');
       
       if (!_speechEnabled) {
         print('音声認識が無効です');

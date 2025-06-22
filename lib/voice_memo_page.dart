@@ -517,7 +517,7 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: const Text(
-                              '統合版',
+                              'Vosk対応',
                               style: TextStyle(
                                 fontSize: 10,
                                 color: Colors.green,
