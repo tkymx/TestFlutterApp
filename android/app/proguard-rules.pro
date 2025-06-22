@@ -9,6 +9,12 @@
 -keep class io.flutter.**  { *; }
 -keep class io.flutter.plugins.**  { *; }
 
+# Vosk Speech Recognition API保護
+-keep class org.vosk.** { *; }
+-keep class com.sun.jna.** { *; }
+-dontwarn org.vosk.**
+-dontwarn com.sun.jna.**
+
 # 本番リリース時に有効化する詳細ルール:
 # # HWCエラー対策: ハードウェア関連クラスの保護
 # -keep class android.hardware.** { *; }
