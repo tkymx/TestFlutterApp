@@ -410,7 +410,6 @@ class MainActivity: FlutterActivity() {
                         methodChannel.invokeMethod("onFileTranscriptionResult", mapOf("success" to false, "text" to null))
                     }
                 }
-                }
                 
             } catch (e: Exception) {
                 Log.e(TAG, "音声ファイル処理エラー", e)
