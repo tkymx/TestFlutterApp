@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'voice_memo_service.dart';
 import 'enhanced_voice_service.dart';
 import 'dart:io';
@@ -241,6 +242,66 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         SnackBar(content: Text('再生エラー: $e')),
       );
     }
+  }
+  
+  // 書き起こしテキストを表示するダイアログを表示
+  void _showTranscriptionDialog(VoiceMemo voiceMemo) {
+    if (voiceMemo.transcription == null || voiceMemo.transcription!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('書き起こしテキストがありません')),
+      );
+      return;
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(voiceMemo.title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '書き起こしテキスト:',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12.0),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(color: Colors.grey.withOpacity(0.3)),
+              ),
+              child: SelectableText(
+                voiceMemo.transcription!,
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              // テキストをクリップボードにコピー
+              Clipboard.setData(ClipboardData(text: voiceMemo.transcription!));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('テキストをコピーしました')),
+              );
+            },
+            child: const Text('コピー'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _stopPlayback() async {
@@ -599,42 +660,38 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                                 '長さ: ${_formatDuration(memo.duration)}',
                                 style: const TextStyle(fontSize: 12),
                               ),
+                              // 書き起こしの有無を表示
                               if (memo.transcription != null && memo.transcription!.isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 4.0),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(6.0),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(4.0),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          '書き起こし:',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          memo.transcription!,
-                                          style: const TextStyle(fontSize: 13),
-                                          maxLines: 3,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.text_snippet, size: 12, color: Colors.grey),
+                                      const SizedBox(width: 4),
+                                      const Text(
+                                        '書き起こしあり',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                                      ),
+                                    ],
                                   ),
                                 ),
                             ],
                           ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () => _deleteVoiceMemo(memo),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // 書き起こしがある場合は表示ボタンを追加
+                              if (memo.transcription != null && memo.transcription!.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.text_snippet, color: Colors.blue),
+                                  tooltip: '書き起こしを表示',
+                                  onPressed: () => _showTranscriptionDialog(memo),
+                                ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                onPressed: () => _deleteVoiceMemo(memo),
+                              ),
+                            ],
                           ),
                           onTap: () => _playVoiceMemo(memo),
                           onLongPress: () => _deleteVoiceMemo(memo),

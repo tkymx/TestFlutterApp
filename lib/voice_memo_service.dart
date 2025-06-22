@@ -207,7 +207,8 @@ class VoiceMemoService {
       await _speechToText.listen(
         onResult: (result) {
           _recognizedText = result.recognizedWords;
-          onTranscriptionUpdated?.call(_recognizedText);
+          // 録音中は書き起こしテキストを更新しない（録音終了後に表示するため）
+          // onTranscriptionUpdated?.call(_recognizedText);
           print('認識テキスト: $_recognizedText');
         },
         listenFor: const Duration(seconds: 30), // 30秒ごとに再開
@@ -328,6 +329,9 @@ class VoiceMemoService {
         // 録音時間計算
         final duration = DateTime.now().difference(_recordingStartTime!);
         
+        // 書き起こしテキストを保存（録音中は表示せず、録音後に表示するため）
+        final transcriptionText = _recognizedText.isNotEmpty ? _recognizedText : null;
+        
         // ボイスメモオブジェクト作成
         final voiceMemo = VoiceMemo(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -335,12 +339,17 @@ class VoiceMemoService {
           title: 'ボイスメモ ${DateTime.now().month}/${DateTime.now().day} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
           createdAt: _recordingStartTime!,
           duration: duration,
-          transcription: _recognizedText.isNotEmpty ? _recognizedText : null,
+          transcription: transcriptionText,
         );
 
         // 保存
         await _saveVoiceMemo(voiceMemo);
         onVoiceMemoCreated?.call(voiceMemo);
+        
+        // 書き起こしテキストがある場合は通知
+        if (transcriptionText != null && transcriptionText.isNotEmpty) {
+          onTranscriptionUpdated?.call(transcriptionText);
+        }
         
         print('録音を停止しました: $path');
         print('書き起こし: ${voiceMemo.transcription ?? "なし"}');
