@@ -41,9 +41,13 @@ android {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.debug
             
-            // HWCエラー対策: ProGuard設定
-            minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // 開発中のため難読化を無効化（ビルド安定性を優先）
+            minifyEnabled false
+            shrinkResources false
+            // 本番リリース時に有効化する場合:
+            // minifyEnabled true
+            // shrinkResources true
+            // proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
             // デバッグビルドでは最適化を無効化
@@ -54,4 +58,11 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // 開発中はGoogle Play Core API依存関係を削除
+    // 本番リリース時に必要に応じて追加:
+    // implementation 'com.google.android.play:core:1.10.3'
+    // implementation 'com.google.android.play:core-ktx:1.8.1'
 }
