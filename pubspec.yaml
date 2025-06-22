@@ -60,7 +60,11 @@ dependencies:
   # 音声ファイル再生
   audioplayers: ^6.1.0
   
-
+  # HTTP通信
+  http: ^1.2.2
+  
+  # アーカイブ処理
+  archive: ^3.6.1
   
   # 画面スリープ防止
   wakelock_plus: ^1.2.8

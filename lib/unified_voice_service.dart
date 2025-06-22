@@ -888,6 +888,40 @@ class UnifiedVoiceService {
     }
   }
 
+  /// モデル変更
+  Future<bool> setModel(String modelId) async {
+    try {
+      final result = await _channel.invokeMethod('setModel', {'modelId': modelId});
+      return result == true;
+    } catch (e) {
+      print('モデル変更エラー: $e');
+      onError?.call('モデル変更エラー: $e');
+      return false;
+    }
+  }
+
+  /// 利用可能なモデル一覧取得
+  Future<Map<String, dynamic>?> getAvailableModels() async {
+    try {
+      final result = await _channel.invokeMethod('getAvailableModels');
+      return result as Map<String, dynamic>?;
+    } catch (e) {
+      print('利用可能なモデル取得エラー: $e');
+      return null;
+    }
+  }
+
+  /// インストール済みモデル一覧取得
+  Future<Map<String, bool>?> getInstalledModels() async {
+    try {
+      final result = await _channel.invokeMethod('getInstalledModels');
+      return Map<String, bool>.from(result as Map);
+    } catch (e) {
+      print('インストール済みモデル取得エラー: $e');
+      return null;
+    }
+  }
+
   /// リソース解放
   void dispose() {
     _isContinuousListening = false;
