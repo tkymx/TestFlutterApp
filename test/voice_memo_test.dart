@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/foundation.dart';
-import '../lib/voice_memo_service.dart';
+import '../lib/unified_voice_service.dart';
+
 void main() {
   group('VoiceMemo Tests', () {
     test('VoiceMemo creation and JSON serialization', () {
@@ -11,6 +12,7 @@ void main() {
         title: 'Test Memo',
         createdAt: now,
         duration: const Duration(minutes: 2, seconds: 30),
+        transcription: 'Test transcription',
       );
 
       expect(voiceMemo.id, '123');
@@ -18,6 +20,7 @@ void main() {
       expect(voiceMemo.title, 'Test Memo');
       expect(voiceMemo.createdAt, now);
       expect(voiceMemo.duration, const Duration(minutes: 2, seconds: 30));
+      expect(voiceMemo.transcription, 'Test transcription');
     });
 
     test('VoiceMemo JSON serialization and deserialization', () {
@@ -28,6 +31,7 @@ void main() {
         title: 'Another Memo',
         createdAt: now,
         duration: const Duration(seconds: 45),
+        transcription: 'Another transcription',
       );
 
       final json = originalMemo.toJson();
@@ -38,20 +42,17 @@ void main() {
       expect(deserializedMemo.title, originalMemo.title);
       expect(deserializedMemo.createdAt, originalMemo.createdAt);
       expect(deserializedMemo.duration, originalMemo.duration);
+      expect(deserializedMemo.transcription, originalMemo.transcription);
     });
 
-    test('VoiceMemoService singleton pattern', () {
-      final service1 = VoiceMemoService();
-      final service2 = VoiceMemoService();
-      
-      expect(identical(service1, service2), true);
-    });
-
-    test('VoiceMemoService initial state', () {
-      final service = VoiceMemoService();
+    test('UnifiedVoiceService initial state', () {
+      final service = UnifiedVoiceService();
       
       expect(service.isRecording, false);
-      expect(service.isBackgroundServiceRunning, false);
+      expect(service.isContinuousListening, false);
+      expect(service.isPaused, false);
+      expect(service.soundLevel, 0.0);
+      expect(service.recognizedText, '');
     });
   });
 

@@ -635,7 +635,7 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              if (_useEnhancedService && _currentStatus.isNotEmpty)
+                              if (_currentStatus.isNotEmpty)
                                 Text(
                                   _currentStatus,
                                   style: const TextStyle(
@@ -646,26 +646,25 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                             ],
                           ),
                           const SizedBox(width: 8),
-                          if (_useEnhancedService)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                '拡張版',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.blue,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              '統合版',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
+                          ),
                         ],
                       ),
                       // 録音中の書き起こしテキスト表示
-                      if ((_useEnhancedService ? _enhancedVoiceService.isRecording : _voiceMemoService.isRecording) && _currentTranscription.isNotEmpty)
+                      if ((_voiceService.isRecording || _voiceService.isContinuousListening) && _currentTranscription.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 8.0),
                           child: Container(
