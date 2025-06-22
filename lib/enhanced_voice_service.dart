@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_sound/flutter_sound.dart';
+import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,9 +20,8 @@ class EnhancedVoiceService {
   factory EnhancedVoiceService() => _instance;
   EnhancedVoiceService._internal();
 
-  // Flutter Sound
-  FlutterSoundRecorder? _soundRecorder;
-  FlutterSoundPlayer? _soundPlayer;
+  // Audio Recorder
+  AudioRecorder? _soundRecorder;
   
   // Speech to Text
   final stt.SpeechToText _speechToText = stt.SpeechToText();
@@ -97,13 +96,9 @@ class EnhancedVoiceService {
     }
   }
 
-  /// Flutter Sound の初期化
+  /// Audio Recorder の初期化
   Future<void> _initializeFlutterSound() async {
-    _soundRecorder = FlutterSoundRecorder();
-    _soundPlayer = FlutterSoundPlayer();
-    
-    await _soundRecorder!.openRecorder();
-    await _soundPlayer!.openPlayer();
+    _soundRecorder = AudioRecorder();
     
     print('Flutter Sound の初期化が完了しました');
   }
@@ -148,12 +143,14 @@ class EnhancedVoiceService {
       // Wakelock を有効にして画面スリープを防止
       await WakelockPlus.enable();
 
-      // Flutter Sound で録音開始
-      await _soundRecorder!.startRecorder(
-        toFile: _currentRecordingPath,
-        codec: Codec.aacADTS,
-        bitRate: 128000,
-        sampleRate: 44100,
+      // Audio Recorder で録音開始
+      await _soundRecorder!.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 44100,
+        ),
+        path: _currentRecordingPath,
       );
 
       _isRecording = true;
@@ -182,8 +179,8 @@ class EnhancedVoiceService {
       // 連続音声認識停止
       await _stopContinuousSpeechRecognition();
       
-      // Flutter Sound で録音停止
-      final path = await _soundRecorder!.stopRecorder();
+      // Audio Recorder で録音停止
+      final path = await _soundRecorder!.stop();
       
       // Wakelock を無効化
       await WakelockPlus.disable();
@@ -441,8 +438,7 @@ class EnhancedVoiceService {
     _restartTimer?.cancel();
     _keepAliveTimer?.cancel();
     
-    _soundRecorder?.closeRecorder();
-    _soundPlayer?.closePlayer();
+    _soundRecorder?.dispose();
     _speechToText.cancel();
     
     WakelockPlus.disable();

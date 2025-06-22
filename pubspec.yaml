@@ -61,8 +61,7 @@ dependencies:
   # 音声ファイル再生
   audioplayers: ^6.1.0
   
-  # より高機能な音声処理
-  flutter_sound: ^9.2.13
+
   
   # 画面スリープ防止
   wakelock_plus: ^1.2.8
