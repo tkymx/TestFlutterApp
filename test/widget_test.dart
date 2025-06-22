@@ -8,6 +8,10 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/main.dart';
 
 void main() {
+  setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+  });
+
   group('音声タスクリストアプリのテスト', () {
     testWidgets('アプリの初期状態テスト', (WidgetTester tester) async {
       // アプリを起動

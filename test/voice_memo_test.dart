@@ -3,6 +3,10 @@ import 'package:flutter/foundation.dart';
 import '../lib/unified_voice_service.dart';
 
 void main() {
+  setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+  });
+
   group('VoiceMemo Tests', () {
     test('VoiceMemo creation and JSON serialization', () {
       final now = DateTime.now();
