@@ -6,6 +6,13 @@ import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'voice_memo_page.dart';
 
+// 音声認識の停止モード
+enum SpeechStopMode {
+  gradual,   // 段階入力（一定時間後に自動停止）
+  manual,    // 手動入力（手動で停止ボタンを押す必要がある）
+  unlimited  // 無制限（非常に長い時間自動停止しない）
+}
+
 void main() {
   runApp(const MyApp());
 }
@@ -155,12 +162,38 @@ class _TaskListPageState extends State<TaskListPage> {
   bool _speechEnabled = false;
   bool _speechListening = false;
   String _lastWords = '';
+  
+  // 音声認識の停止モード設定
+  SpeechStopMode _speechStopMode = SpeechStopMode.gradual;
+  
+  // 各モードの設定値
+  final Map<SpeechStopMode, Duration> _pauseForDurations = {
+    SpeechStopMode.gradual: const Duration(seconds: 10),    // 段階入力: 10秒
+    SpeechStopMode.manual: const Duration(seconds: 0),      // 手動入力: 自動停止なし
+    SpeechStopMode.unlimited: const Duration(seconds: 300), // 無制限: 5分（事実上無制限）
+  };
 
   @override
   void initState() {
     super.initState();
+    _loadSpeechSettings();
     _initSpeech();
     _loadTasks();
+  }
+  
+  // 音声認識設定の読み込み
+  Future<void> _loadSpeechSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stopModeIndex = prefs.getInt('speech_stop_mode') ?? SpeechStopMode.gradual.index;
+    setState(() {
+      _speechStopMode = SpeechStopMode.values[stopModeIndex];
+    });
+  }
+  
+  // 音声認識設定の保存
+  Future<void> _saveSpeechSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('speech_stop_mode', _speechStopMode.index);
   }
 
   void _initSpeech() async {
@@ -215,10 +248,16 @@ class _TaskListPageState extends State<TaskListPage> {
 
   void _startListening() async {
     try {
+      // 選択された停止モードに基づいてpauseForを設定
+      final pauseFor = _pauseForDurations[_speechStopMode]!;
+      
+      // 手動モードの場合はpauseForを無効にする特別な処理
+      final effectivePauseFor = _speechStopMode == SpeechStopMode.manual ? null : pauseFor;
+      
       await _speechToText.listen(
         onResult: _onSpeechResult,
         listenFor: const Duration(seconds: 60),
-        pauseFor: const Duration(seconds: 10),
+        pauseFor: effectivePauseFor,
         localeId: 'ja_JP',
         listenOptions: SpeechListenOptions(
           partialResults: true,
@@ -229,6 +268,13 @@ class _TaskListPageState extends State<TaskListPage> {
       setState(() {
         _speechListening = true;
       });
+      
+      // 手動モードの場合はユーザーに通知
+      if (_speechStopMode == SpeechStopMode.manual && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('手動入力モード: 停止ボタンを押して終了してください')),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -343,6 +389,12 @@ class _TaskListPageState extends State<TaskListPage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
         actions: [
+          // 音声認識設定ボタン
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: '音声認識設定',
+            onPressed: _showSpeechSettingsDialog,
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () {
@@ -360,6 +412,7 @@ class _TaskListPageState extends State<TaskListPage> {
                       Text('完了済み: ${_tasks.where((t) => t.isCompleted).length}'),
                       const SizedBox(height: 8),
                       Text('音声認識: ${_speechEnabled ? "有効" : "無効"}'),
+                      Text('停止モード: ${_getSpeechStopModeText()}'),
                     ],
                   ),
                   actions: [
@@ -619,5 +672,107 @@ class _TaskListPageState extends State<TaskListPage> {
   void dispose() {
     _textController.dispose();
     super.dispose();
+  }
+  
+  // 音声認識停止モードの設定ダイアログを表示
+  void _showSpeechSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        // ダイアログ内で一時的に使用する変数
+        SpeechStopMode tempMode = _speechStopMode;
+        
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('音声認識設定'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('停止モード:'),
+                  const SizedBox(height: 8),
+                  
+                  // 段階入力オプション
+                  RadioListTile<SpeechStopMode>(
+                    title: const Text('段階入力'),
+                    subtitle: const Text('10秒間話さないと自動停止'),
+                    value: SpeechStopMode.gradual,
+                    groupValue: tempMode,
+                    onChanged: (value) {
+                      setState(() {
+                        tempMode = value!;
+                      });
+                    },
+                  ),
+                  
+                  // 手動入力オプション
+                  RadioListTile<SpeechStopMode>(
+                    title: const Text('手動入力'),
+                    subtitle: const Text('停止ボタンを押すまで継続'),
+                    value: SpeechStopMode.manual,
+                    groupValue: tempMode,
+                    onChanged: (value) {
+                      setState(() {
+                        tempMode = value!;
+                      });
+                    },
+                  ),
+                  
+                  // 無制限オプション
+                  RadioListTile<SpeechStopMode>(
+                    title: const Text('無制限'),
+                    subtitle: const Text('非常に長い間隔（5分）で自動停止'),
+                    value: SpeechStopMode.unlimited,
+                    groupValue: tempMode,
+                    onChanged: (value) {
+                      setState(() {
+                        tempMode = value!;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('キャンセル'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    // 設定を保存して適用
+                    this.setState(() {
+                      _speechStopMode = tempMode;
+                    });
+                    _saveSpeechSettings();
+                    Navigator.of(context).pop();
+                    
+                    // 設定変更を通知
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('音声認識モードを「${_getSpeechStopModeText()}」に設定しました')),
+                    );
+                  },
+                  child: const Text('保存'),
+                ),
+              ],
+            );
+          }
+        );
+      },
+    );
+  }
+  
+  // 停止モードのテキスト表示を取得
+  String _getSpeechStopModeText() {
+    switch (_speechStopMode) {
+      case SpeechStopMode.gradual:
+        return '段階入力';
+      case SpeechStopMode.manual:
+        return '手動入力';
+      case SpeechStopMode.unlimited:
+        return '無制限';
+      default:
+        return '不明';
+    }
   }
 }
