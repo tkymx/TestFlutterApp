@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:record/record.dart';
@@ -61,6 +62,8 @@ class VoiceMemoService {
   DateTime? _recordingStartTime;
   String _recognizedText = '';
   bool _speechEnabled = false;
+  bool _isContinuousListening = false;
+  Timer? _restartTimer;
 
   // コールバック
   Function(VoiceMemo)? onVoiceMemoCreated;
@@ -184,13 +187,23 @@ class VoiceMemoService {
 
 
 
-  // 音声認識の開始
+  // 音声認識の開始（連続音声認識対応）
   Future<void> _startSpeechRecognition() async {
     if (!_speechEnabled) return;
     
+    _isContinuousListening = true;
     _recognizedText = '';
     
+    await _startListeningSession();
+  }
+
+  // 音声認識セッションの開始
+  Future<void> _startListeningSession() async {
+    if (!_speechEnabled || !_isContinuousListening) return;
+    
     try {
+      print('音声認識セッションを開始します');
+      
       await _speechToText.listen(
         onResult: (result) {
           _recognizedText = result.recognizedWords;
@@ -198,22 +211,66 @@ class VoiceMemoService {
           // onTranscriptionUpdated?.call(_recognizedText);
           print('認識テキスト: $_recognizedText');
         },
-        listenFor: const Duration(minutes: 30), // 長時間の録音に対応
-        pauseFor: const Duration(seconds: 3),
+        listenFor: const Duration(seconds: 30), // 30秒ごとに再開
+        pauseFor: const Duration(seconds: 2), // 無音許容時間を短縮
         partialResults: true,
-        localeId: 'ja_JP', // 日本語設定
+        localeId: 'ja_JP',
         cancelOnError: false,
         listenMode: stt.ListenMode.dictation,
+        onSoundLevelChange: (level) {
+          // 音声レベルの監視（デバッグ用）
+          // print('音声レベル: $level');
+        },
       );
-      print('音声認識を開始しました');
+      
+      // 音声認識の状態を監視
+      _monitorSpeechRecognition();
+      
     } catch (e) {
-      print('音声認識開始エラー: $e');
+      print('音声認識セッション開始エラー: $e');
+      // エラーが発生した場合、少し待ってから再試行
+      if (_isContinuousListening) {
+        _scheduleRestart();
+      }
     }
+  }
+
+  // 音声認識の状態監視
+  void _monitorSpeechRecognition() {
+    _restartTimer?.cancel();
+    _restartTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!_isContinuousListening) {
+        timer.cancel();
+        return;
+      }
+      
+      // 音声認識が停止している場合は再開
+      if (!_speechToText.isListening) {
+        print('音声認識が停止しました。再開します...');
+        timer.cancel();
+        _scheduleRestart();
+      }
+    });
+  }
+
+  // 音声認識の再開をスケジュール
+  void _scheduleRestart() {
+    if (!_isContinuousListening) return;
+    
+    _restartTimer?.cancel();
+    _restartTimer = Timer(const Duration(milliseconds: 500), () {
+      if (_isContinuousListening) {
+        _startListeningSession();
+      }
+    });
   }
 
   // 音声認識の停止
   Future<void> _stopSpeechRecognition() async {
     if (!_speechEnabled) return;
+    
+    _isContinuousListening = false;
+    _restartTimer?.cancel();
     
     try {
       await _speechToText.stop();
@@ -305,7 +362,12 @@ class VoiceMemoService {
     }
   }
 
-  // ボイスメモ保存
+  // ボイスメモ保存（パブリック）
+  Future<void> saveVoiceMemo(VoiceMemo voiceMemo) async {
+    await _saveVoiceMemo(voiceMemo);
+  }
+
+  // ボイスメモ保存（プライベート）
   Future<void> _saveVoiceMemo(VoiceMemo voiceMemo) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -360,6 +422,8 @@ class VoiceMemoService {
 
   // リソース解放
   void dispose() {
+    _isContinuousListening = false;
+    _restartTimer?.cancel();
     _recorder.dispose();
     _speechToText.cancel();
   }
