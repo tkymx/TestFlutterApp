@@ -217,13 +217,13 @@ class _TaskListPageState extends State<TaskListPage> {
     try {
       await _speechToText.listen(
         onResult: _onSpeechResult,
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 3),
+        listenFor: const Duration(seconds: 60),
+        pauseFor: const Duration(seconds: 10),
         localeId: 'ja_JP',
         listenOptions: SpeechListenOptions(
           partialResults: true,
           cancelOnError: true,
-          listenMode: ListenMode.confirmation,
+          listenMode: ListenMode.dictation,
         ),
       );
       setState(() {
