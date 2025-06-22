@@ -144,14 +144,18 @@ class EnhancedVoiceService {
       await WakelockPlus.enable();
 
       // Audio Recorder で録音開始
-      await _soundRecorder!.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
-        ),
-        path: _currentRecordingPath,
-      );
+      if (_currentRecordingPath != null) {
+        await _soundRecorder!.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            bitRate: 128000,
+            sampleRate: 44100,
+          ),
+          path: _currentRecordingPath!,
+        );
+      } else {
+        throw Exception('録音ファイルパスが設定されていません');
+      }
 
       _isRecording = true;
       _recordingStartTime = DateTime.now();
