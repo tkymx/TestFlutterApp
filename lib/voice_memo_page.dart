@@ -163,14 +163,7 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
     });
   }
 
-  void _toggleShakeDetection() async {
-    if (_voiceMemoService.shakeDetectionEnabled) {
-      await _voiceMemoService.stopShakeDetection();
-    } else {
-      await _voiceMemoService.startShakeDetection();
-    }
-    setState(() {});
-  }
+
 
   void _startManualRecording() async {
     await _voiceMemoService.startRecording();
@@ -314,17 +307,6 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         title: const Text('ボイスメモ'),
         actions: [
           IconButton(
-            icon: Icon(
-              _voiceMemoService.shakeDetectionEnabled 
-                ? Icons.vibration 
-                : Icons.vibration_outlined
-            ),
-            onPressed: _toggleShakeDetection,
-            tooltip: _voiceMemoService.shakeDetectionEnabled 
-              ? '振動検知を停止' 
-              : '振動検知を開始',
-          ),
-          IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () {
               showDialog(
@@ -339,12 +321,8 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                       const SizedBox(height: 8),
                       Text('メモ数: ${_voiceMemos.length}'),
                       const SizedBox(height: 8),
-                      Text('振動検知: ${_voiceMemoService.shakeDetectionEnabled ? "有効" : "無効"}'),
-                      Text('バックグラウンド: ${_voiceMemoService.isBackgroundServiceRunning ? "実行中" : "停止中"}'),
-                      const SizedBox(height: 8),
                       const Text('使い方:'),
-                      const Text('• 端末を振ると録音開始/停止'),
-                      const Text('• 手動録音ボタンでも操作可能'),
+                      const Text('• 録音ボタンで録音開始/停止'),
                       const Text('• タップで再生/一時停止'),
                       const Text('• 長押しで削除'),
                     ],
@@ -374,16 +352,12 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                   decoration: BoxDecoration(
                     color: _voiceMemoService.isRecording 
                       ? Colors.red.withOpacity(0.1)
-                      : (_voiceMemoService.shakeDetectionEnabled 
-                        ? Colors.green.withOpacity(0.1)
-                        : Colors.grey.withOpacity(0.1)),
+                      : Colors.grey.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8.0),
                     border: Border.all(
                       color: _voiceMemoService.isRecording 
                         ? Colors.red.withOpacity(0.3)
-                        : (_voiceMemoService.shakeDetectionEnabled 
-                          ? Colors.green.withOpacity(0.3)
-                          : Colors.grey.withOpacity(0.3)),
+                        : Colors.grey.withOpacity(0.3),
                     ),
                   ),
                   child: Column(
@@ -394,29 +368,21 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                           Icon(
                             _voiceMemoService.isRecording 
                               ? Icons.fiber_manual_record
-                              : (_voiceMemoService.shakeDetectionEnabled 
-                                ? Icons.vibration
-                                : Icons.pause_circle_outline),
+                              : Icons.pause_circle_outline,
                             color: _voiceMemoService.isRecording 
                               ? Colors.red
-                              : (_voiceMemoService.shakeDetectionEnabled 
-                                ? Colors.green
-                                : Colors.grey),
+                              : Colors.grey,
                             size: 20,
                           ),
                           const SizedBox(width: 8),
                           Text(
                             _voiceMemoService.isRecording 
                               ? '録音中...'
-                              : (_voiceMemoService.shakeDetectionEnabled 
-                                ? '振動検知待機中'
-                                : '停止中'),
+                              : '停止中',
                             style: TextStyle(
                               color: _voiceMemoService.isRecording 
                                 ? Colors.red
-                                : (_voiceMemoService.shakeDetectionEnabled 
-                                  ? Colors.green
-                                  : Colors.grey),
+                                : Colors.grey,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -459,34 +425,18 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // 手動録音ボタン
+                // 録音ボタン
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     ElevatedButton.icon(
                       onPressed: _voiceMemoService.isRecording 
                         ? _stopManualRecording 
                         : _startManualRecording,
                       icon: Icon(_voiceMemoService.isRecording ? Icons.stop : Icons.mic),
-                      label: Text(_voiceMemoService.isRecording ? '録音停止' : '手動録音'),
+                      label: Text(_voiceMemoService.isRecording ? '録音停止' : '録音開始'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _voiceMemoService.isRecording ? Colors.red : Colors.blue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: _toggleShakeDetection,
-                      icon: Icon(_voiceMemoService.shakeDetectionEnabled 
-                        ? Icons.vibration 
-                        : Icons.vibration_outlined),
-                      label: Text(_voiceMemoService.shakeDetectionEnabled 
-                        ? '振動検知停止' 
-                        : '振動検知開始'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _voiceMemoService.shakeDetectionEnabled 
-                          ? Colors.orange 
-                          : Colors.green,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       ),
