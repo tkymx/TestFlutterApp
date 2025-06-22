@@ -75,6 +75,7 @@ class UnifiedVoiceService {
   String? _currentRecordingPath;
   DateTime? _recordingStartTime;
   String _recognizedText = '';
+  String _accumulatedText = ''; // 連続音声認識で蓄積されるテキスト
   double _soundLevel = 0.0;
   
   // タイマー管理
@@ -105,6 +106,7 @@ class UnifiedVoiceService {
   bool get isContinuousListening => _isContinuousListening;
   bool get isPaused => _isPaused;
   String get recognizedText => _recognizedText;
+  String get accumulatedText => _accumulatedText;
   double get soundLevel => _soundLevel;
 
   /// MethodChannelのセットアップ
@@ -114,12 +116,24 @@ class UnifiedVoiceService {
         case 'onPartialResult':
           final text = call.arguments as String;
           _recognizedText = text;
-          onTranscriptionUpdated?.call(text);
+          // 連続音声認識中は部分的な結果を蓄積テキストに一時的に追加
+          if (_isContinuousListening) {
+            final displayText = _accumulatedText + (_accumulatedText.isNotEmpty ? ' ' : '') + text;
+            onTranscriptionUpdated?.call(displayText);
+          } else {
+            onTranscriptionUpdated?.call(text);
+          }
           break;
         case 'onFinalResult':
           final text = call.arguments as String;
           _recognizedText = text;
-          onTranscriptionUpdated?.call(text);
+          // 連続音声認識中は最終結果を蓄積テキストに追加
+          if (_isContinuousListening && text.trim().isNotEmpty) {
+            _accumulatedText += (_accumulatedText.isNotEmpty ? ' ' : '') + text.trim();
+            onTranscriptionUpdated?.call(_accumulatedText);
+          } else {
+            onTranscriptionUpdated?.call(text);
+          }
           break;
         case 'onError':
           final error = call.arguments as String;
@@ -343,6 +357,7 @@ class UnifiedVoiceService {
       _isPaused = false;
       _restartAttempts = 0;
       _recognizedText = '';
+      _accumulatedText = ''; // 連続音声認識開始時に蓄積テキストをクリア
       
       await _startListening();
       onStatusChanged?.call('連続音声認識開始');
@@ -413,6 +428,10 @@ class UnifiedVoiceService {
     if (!_speechEnabled) return;
     
     _recognizedText = '';
+    // 通常の録音時は蓄積テキストもクリア
+    if (!_isContinuousListening) {
+      _accumulatedText = '';
+    }
     await _startListening();
   }
 
@@ -795,15 +814,16 @@ class UnifiedVoiceService {
 
   /// 手動音声メモの作成（連続音声認識用）
   Future<VoiceMemo?> createManualVoiceMemo() async {
-    if (_recognizedText.isEmpty) {
+    final textToUse = _isContinuousListening ? _accumulatedText : _recognizedText;
+    if (textToUse.isEmpty) {
       onError?.call('認識されたテキストがありません');
       return null;
     }
 
     try {
-      final title = _recognizedText.length > 20 
-          ? '${_recognizedText.substring(0, 20)}...' 
-          : _recognizedText;
+      final title = textToUse.length > 20 
+          ? '${textToUse.substring(0, 20)}...' 
+          : textToUse;
           
       final voiceMemo = VoiceMemo(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -811,7 +831,7 @@ class UnifiedVoiceService {
         title: title,
         createdAt: DateTime.now(),
         duration: Duration.zero,
-        transcription: _recognizedText,
+        transcription: textToUse,
       );
 
       final saveSuccess = await saveVoiceMemo(voiceMemo);
@@ -938,6 +958,7 @@ class UnifiedVoiceService {
     
     _isInitialized = false;
     _recognizedText = '';
+    _accumulatedText = '';
     _soundLevel = 0.0;
     
     if (kDebugMode) {
