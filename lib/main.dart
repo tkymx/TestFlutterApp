@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'voice_memo_page.dart';
+import 'settings_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -78,6 +79,7 @@ class _MainPageState extends State<MainPage> {
   final List<Widget> _pages = [
     const TaskListPage(title: '音声タスクリスト'),
     const VoiceMemoPage(),
+    const SettingsPage(),
   ];
 
   void _onItemTapped(int index) {
@@ -91,6 +93,7 @@ class _MainPageState extends State<MainPage> {
     return Scaffold(
       body: _pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
             icon: Icon(Icons.task_alt),
@@ -99,6 +102,10 @@ class _MainPageState extends State<MainPage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.mic),
             label: 'ボイスメモ',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: '設定',
           ),
         ],
         currentIndex: _selectedIndex,
@@ -157,6 +164,7 @@ class _TaskListPageState extends State<TaskListPage> {
   bool _speechEnabled = false;
   bool _speechListening = false;
   String _lastWords = '';
+  String _accumulatedText = ''; // 連続音声認識で蓄積されるテキスト
 
   @override
   void initState() {
@@ -218,14 +226,19 @@ class _TaskListPageState extends State<TaskListPage> {
           final text = call.arguments as String;
           setState(() {
             _lastWords = text;
-            _textController.text = _lastWords;
+            // 部分的な結果は現在の蓄積テキストに一時的に追加して表示
+            _textController.text = _accumulatedText + (_accumulatedText.isNotEmpty ? ' ' : '') + text;
           });
           break;
         case 'onFinalResult':
           final text = call.arguments as String;
           setState(() {
             _lastWords = text;
-            _textController.text = _lastWords;
+            // 最終結果は蓄積テキストに追加
+            if (text.trim().isNotEmpty) {
+              _accumulatedText += (_accumulatedText.isNotEmpty ? ' ' : '') + text.trim();
+              _textController.text = _accumulatedText;
+            }
           });
           break;
         case 'onError':
@@ -258,6 +271,9 @@ class _TaskListPageState extends State<TaskListPage> {
   void _startListening() async {
     try {
       print('音声認識開始');
+      
+      // 音声認識開始時に蓄積テキストを現在のテキストフィールドの内容で初期化
+      _accumulatedText = _textController.text.trim();
       
       await _channel.invokeMethod('startListening', {
         'locale': 'ja-JP',
@@ -311,6 +327,7 @@ class _TaskListPageState extends State<TaskListPage> {
       _tasks.insert(0, newTask);
       _textController.clear();
       _lastWords = '';
+      _accumulatedText = ''; // 蓄積テキストもクリア
     });
 
     _saveTasks();
@@ -399,13 +416,21 @@ class _TaskListPageState extends State<TaskListPage> {
                             icon: const Icon(Icons.clear),
                             onPressed: () {
                               _textController.clear();
+                              _accumulatedText = ''; // 蓄積テキストもクリア
                               setState(() {});
                             },
                           )
                         : null,
                   ),
-                  maxLines: 2,
+                  minLines: 1,
+                  maxLines: 10, // 最大10行まで拡張
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
                   onChanged: (value) {
+                    // 手動入力時は蓄積テキストも更新
+                    if (!_speechListening) {
+                      _accumulatedText = value;
+                    }
                     setState(() {});
                   },
                   onSubmitted: (value) {

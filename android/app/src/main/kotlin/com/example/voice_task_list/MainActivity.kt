@@ -85,6 +85,20 @@ class MainActivity: FlutterActivity() {
                 "cleanup" -> {
                     cleanup(result)
                 }
+                "setModel" -> {
+                    val modelId = call.argument<String>("modelId")
+                    if (modelId != null) {
+                        setModel(modelId, result)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "modelId is required", null)
+                    }
+                }
+                "getAvailableModels" -> {
+                    getAvailableModels(result)
+                }
+                "getInstalledModels" -> {
+                    getInstalledModels(result)
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -704,6 +718,110 @@ class MainActivity: FlutterActivity() {
             Log.d(TAG, "アプリケーション終了時のクリーンアップ完了")
         } catch (e: Exception) {
             Log.e(TAG, "アプリケーション終了時のクリーンアップエラー", e)
+        }
+    }
+
+    private fun setModel(modelId: String, result: MethodChannel.Result) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "モデル変更: $modelId")
+                
+                // 現在の音声認識を停止
+                if (isListening.get()) {
+                    speechService?.stop()
+                    speechService = null
+                    isListening.set(false)
+                }
+                
+                // 現在のモデルをクローズ
+                try {
+                    model?.close()
+                } catch (e: Exception) {
+                    Log.w(TAG, "モデルクローズ時に例外発生: ${e.message}")
+                }
+                model = null
+                isInitialized.set(false)
+                
+                // 新しいモデルを読み込み
+                val modelFileName = getModelFileName(modelId)
+                val modelDir = File(filesDir, modelFileName)
+                
+                if (!modelDir.exists()) {
+                    runOnUiThread {
+                        result.error("MODEL_NOT_FOUND", "指定されたモデルがインストールされていません: $modelId", null)
+                    }
+                    return@launch
+                }
+                
+                try {
+                    model = Model(modelDir.absolutePath)
+                    isInitialized.set(true)
+                    
+                    runOnUiThread {
+                        Log.d(TAG, "モデル変更完了: $modelId")
+                        result.success(true)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "新しいモデル読み込みエラー", e)
+                    runOnUiThread {
+                        result.error("MODEL_LOAD_ERROR", "新しいモデルの読み込みに失敗しました: ${e.message}", null)
+                    }
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "モデル変更エラー", e)
+                runOnUiThread {
+                    result.error("SET_MODEL_ERROR", "モデル変更に失敗しました: ${e.message}", null)
+                }
+            }
+        }
+    }
+
+    private fun getAvailableModels(result: MethodChannel.Result) {
+        val models = mapOf(
+            "small" to mapOf(
+                "id" to "small",
+                "name" to "最小版モデル",
+                "description" to "軽量で高速。基本的な音声認識に適している。",
+                "size" to "40MB",
+                "fileName" to "vosk-model-small-ja-0.22",
+                "accuracy" to "標準"
+            ),
+            "large" to mapOf(
+                "id" to "large",
+                "name" to "高精度版モデル",
+                "description" to "高精度の音声認識。専門用語や複雑な文章に対応。",
+                "size" to "120MB",
+                "fileName" to "vosk-model-ja-0.22",
+                "accuracy" to "高精度"
+            )
+        )
+        result.success(models)
+    }
+
+    private fun getInstalledModels(result: MethodChannel.Result) {
+        try {
+            val installedModels = mutableMapOf<String, Boolean>()
+            val modelIds = listOf("small", "large")
+            
+            for (modelId in modelIds) {
+                val modelFileName = getModelFileName(modelId)
+                val modelDir = File(filesDir, modelFileName)
+                installedModels[modelId] = modelDir.exists()
+            }
+            
+            result.success(installedModels)
+        } catch (e: Exception) {
+            Log.e(TAG, "インストール済みモデル取得エラー", e)
+            result.error("GET_INSTALLED_MODELS_ERROR", e.message, null)
+        }
+    }
+
+    private fun getModelFileName(modelId: String): String {
+        return when (modelId) {
+            "small" -> "vosk-model-small-ja-0.22"
+            "large" -> "vosk-model-ja-0.22"
+            else -> "vosk-model-small-ja-0.22"
         }
     }
 }
