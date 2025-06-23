@@ -16,7 +16,7 @@ void main() {
     testWidgets('アプリの初期状態テスト', (WidgetTester tester) async {
       // アプリを起動
       await tester.pumpWidget(const MyApp());
-      await tester.pumpAndSettle();
+      await tester.pump(); // pumpAndSettleの代わりにpumpを使用
 
       // タブが表示されることを確認
       expect(find.text('タスクリスト'), findsOneWidget);
@@ -38,7 +38,7 @@ void main() {
     testWidgets('UI構造テスト', (WidgetTester tester) async {
       // アプリを起動
       await tester.pumpWidget(const MyApp());
-      await tester.pumpAndSettle();
+      await tester.pump(); // pumpAndSettleの代わりにpumpを使用
 
       // 基本的なUI要素が存在することを確認
       expect(find.text('音声タスクリスト'), findsOneWidget);
@@ -52,7 +52,7 @@ void main() {
     testWidgets('タスクリスト表示テスト', (WidgetTester tester) async {
       // アプリを起動
       await tester.pumpWidget(const MyApp());
-      await tester.pumpAndSettle();
+      await tester.pump(); // pumpAndSettleの代わりにpumpを使用
 
       // 空のメッセージが表示されることを確認
       expect(find.textContaining('タスクがありません'), findsOneWidget);
@@ -68,7 +68,7 @@ void main() {
     testWidgets('タスクリスト基本機能テスト', (WidgetTester tester) async {
       // アプリを起動
       await tester.pumpWidget(const MyApp());
-      await tester.pumpAndSettle();
+      await tester.pump(); // pumpAndSettleの代わりにpumpを使用
 
       // 初期状態では「タスクがありません」メッセージが表示されることを確認
       expect(find.textContaining('タスクがありません'), findsOneWidget);
