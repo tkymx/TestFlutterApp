@@ -22,6 +22,10 @@ import org.vosk.android.SpeechService
 import org.vosk.android.StorageService
 import java.io.*
 import java.util.concurrent.atomic.AtomicBoolean
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaCodec
+import java.nio.ByteBuffer
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "android_speech_recognition"
@@ -406,29 +410,248 @@ class MainActivity: FlutterActivity() {
                     return@launch
                 }
                 
-                // 簡易音声ファイル認識（デモ実装）
-                // 実際のプロダクションでは、音声ファイルをPCMデータに変換してVoskで処理
-                val transcriptionResult: String
-                if (fileSize > 100000) {
-                    transcriptionResult = "これは録音された音声ファイルの書き起こしです。Vosk音声認識APIを使用して処理されました。"
-                } else if (fileSize > 50000) {
-                    transcriptionResult = "音声ファイルの内容が認識されました。"
-                } else {
-                    transcriptionResult = "短い音声メモです。"
-                }
+                // 実際のVoskを使った音声ファイル書き起こし
+                val transcriptionResult = performVoskTranscription(filePath)
                 
                 runOnUiThread {
-                    Log.d(TAG, "音声ファイル文字起こし完了: $transcriptionResult")
-                    result.success(mapOf("success" to true, "text" to transcriptionResult))
+                    if (transcriptionResult != null) {
+                        Log.d(TAG, "音声ファイル文字起こし完了: $transcriptionResult")
+                        result.success(mapOf("success" to true, "text" to transcriptionResult))
+                        methodChannel.invokeMethod("onFileTranscriptionResult", mapOf("success" to true, "text" to transcriptionResult))
+                    } else {
+                        Log.d(TAG, "音声ファイル文字起こし失敗")
+                        result.success(mapOf("success" to false, "text" to null))
+                        methodChannel.invokeMethod("onFileTranscriptionResult", mapOf("success" to false, "text" to null))
+                    }
                 }
                 
             } catch (e: Exception) {
                 Log.e(TAG, "音声ファイル処理エラー", e)
                 runOnUiThread {
-                    result.error("TRANSCRIBE_ERROR", e.message, null)
+                    result.error("TRANSCRIPTION_ERROR", "音声ファイル処理エラー: ${e.message}", null)
                 }
             }
         }
+    }
+
+    private fun performVoskTranscription(filePath: String): String? {
+        return try {
+            Log.d(TAG, "Vosk音声ファイル認識開始: $filePath")
+            
+            // 音声ファイルをPCMデータに変換
+            val pcmData = convertAudioToPcm(filePath)
+            if (pcmData == null) {
+                Log.e(TAG, "音声ファイルのPCM変換に失敗")
+                return null
+            }
+            
+            // Voskで認識
+            val recognizer = Recognizer(model, 16000.0f)
+            val results = mutableListOf<String>()
+            
+            // PCMデータをバイト配列に変換してチャンクに分けて処理
+            val pcmBytes = ByteArray(pcmData.size * 2) // 16bit = 2 bytes per sample
+            for (i in pcmData.indices) {
+                val sample = pcmData[i].toInt()
+                pcmBytes[i * 2] = (sample and 0xFF).toByte()
+                pcmBytes[i * 2 + 1] = ((sample shr 8) and 0xFF).toByte()
+            }
+            
+            val chunkSize = 8000 // 16000Hz * 0.25秒 * 2 bytes
+            var offset = 0
+            
+            while (offset < pcmBytes.size) {
+                val endOffset = minOf(offset + chunkSize, pcmBytes.size)
+                val chunk = pcmBytes.sliceArray(offset until endOffset)
+                
+                if (recognizer.acceptWaveForm(chunk, chunk.size)) {
+                    val result = recognizer.result
+                    Log.d(TAG, "中間結果: $result")
+                    
+                    try {
+                        val json = JSONObject(result)
+                        val text = json.optString("text", "")
+                        if (text.isNotEmpty()) {
+                            results.add(text)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "JSON解析エラー: $e")
+                    }
+                }
+                
+                offset = endOffset
+            }
+            
+            // 最終結果を取得
+            val finalResult = recognizer.finalResult
+            Log.d(TAG, "最終結果: $finalResult")
+            
+            try {
+                val json = JSONObject(finalResult)
+                val text = json.optString("text", "")
+                if (text.isNotEmpty()) {
+                    results.add(text)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "最終結果JSON解析エラー: $e")
+            }
+            
+            recognizer.close()
+            
+            // 結果をまとめる
+            val combinedResult = results.joinToString(" ").trim()
+            
+            if (combinedResult.isNotEmpty()) {
+                Log.d(TAG, "Vosk認識成功: $combinedResult")
+                combinedResult
+            } else {
+                Log.d(TAG, "Vosk認識結果なし")
+                null
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Vosk認識エラー", e)
+            null
+        }
+    }
+
+    private fun convertAudioToPcm(filePath: String): ShortArray? {
+        return try {
+            Log.d(TAG, "音声ファイルPCM変換開始: $filePath")
+            
+            // MediaExtractorとMediaFormatを使用してM4A/AACファイルを処理
+            val extractor = android.media.MediaExtractor()
+            extractor.setDataSource(filePath)
+            
+            var audioTrackIndex = -1
+            var format: android.media.MediaFormat? = null
+            
+            // 音声トラックを探す
+            for (i in 0 until extractor.trackCount) {
+                val trackFormat = extractor.getTrackFormat(i)
+                val mime = trackFormat.getString(android.media.MediaFormat.KEY_MIME)
+                if (mime?.startsWith("audio/") == true) {
+                    audioTrackIndex = i
+                    format = trackFormat
+                    break
+                }
+            }
+            
+            if (audioTrackIndex == -1 || format == null) {
+                Log.e(TAG, "音声トラックが見つかりません")
+                extractor.release()
+                return null
+            }
+            
+            extractor.selectTrack(audioTrackIndex)
+            
+            // MediaCodecでデコード
+            val mime = format.getString(android.media.MediaFormat.KEY_MIME)!!
+            val decoder = android.media.MediaCodec.createDecoderByType(mime)
+            
+            decoder.configure(format, null, null, 0)
+            decoder.start()
+            
+            val bufferInfo = android.media.MediaCodec.BufferInfo()
+            
+            val pcmData = mutableListOf<Short>()
+            var isEOS = false
+            
+            while (!isEOS) {
+                // 入力バッファに音声データを送信
+                val inputBufferIndex = decoder.dequeueInputBuffer(10000)
+                if (inputBufferIndex >= 0) {
+                    val inputBuffer = decoder.getInputBuffer(inputBufferIndex)
+                    val sampleSize = extractor.readSampleData(inputBuffer!!, 0)
+                    
+                    if (sampleSize < 0) {
+                        decoder.queueInputBuffer(inputBufferIndex, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                    } else {
+                        val presentationTimeUs = extractor.sampleTime
+                        decoder.queueInputBuffer(inputBufferIndex, 0, sampleSize, presentationTimeUs, 0)
+                        extractor.advance()
+                    }
+                }
+                
+                // 出力バッファからPCMデータを取得
+                val outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, 10000)
+                when {
+                    outputBufferIndex >= 0 -> {
+                        val outputBuffer = decoder.getOutputBuffer(outputBufferIndex)
+                        
+                        if (bufferInfo.size > 0 && outputBuffer != null) {
+                            // PCMデータを16bit shortに変換
+                            val pcmBytes = ByteArray(bufferInfo.size)
+                            outputBuffer.get(pcmBytes)
+                            outputBuffer.clear()
+                            
+                            // バイトデータをshortに変換（リトルエンディアン）
+                            for (i in pcmBytes.indices step 2) {
+                                if (i + 1 < pcmBytes.size) {
+                                    val sample = ((pcmBytes[i + 1].toInt() and 0xFF) shl 8) or (pcmBytes[i].toInt() and 0xFF)
+                                    pcmData.add(sample.toShort())
+                                }
+                            }
+                        }
+                        
+                        decoder.releaseOutputBuffer(outputBufferIndex, false)
+                        
+                        if (bufferInfo.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                            isEOS = true
+                        }
+                    }
+                    outputBufferIndex == android.media.MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> {
+                        // 出力バッファが変更された（新しいAPIでは不要）
+                    }
+                    outputBufferIndex == android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        // 出力フォーマットが変更された
+                        val newFormat = decoder.outputFormat
+                        Log.d(TAG, "新しい出力フォーマット: $newFormat")
+                    }
+                }
+            }
+            
+            decoder.stop()
+            decoder.release()
+            extractor.release()
+            
+            // サンプリングレートを16kHzに変換（Voskの要求）
+            val originalSampleRate = format.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+            val targetSampleRate = 16000
+            
+            val result = if (originalSampleRate != targetSampleRate) {
+                Log.d(TAG, "サンプリングレート変換: ${originalSampleRate}Hz -> ${targetSampleRate}Hz")
+                resampleAudio(pcmData.toShortArray(), originalSampleRate, targetSampleRate)
+            } else {
+                pcmData.toShortArray()
+            }
+            
+            Log.d(TAG, "PCM変換完了: ${result.size} samples (${targetSampleRate}Hz)")
+            result
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "PCM変換エラー", e)
+            null
+        }
+    }
+
+    private fun resampleAudio(input: ShortArray, inputSampleRate: Int, outputSampleRate: Int): ShortArray {
+        if (inputSampleRate == outputSampleRate) {
+            return input
+        }
+        
+        val ratio = inputSampleRate.toDouble() / outputSampleRate.toDouble()
+        val outputLength = (input.size / ratio).toInt()
+        val output = ShortArray(outputLength)
+        
+        for (i in output.indices) {
+            val inputIndex = (i * ratio).toInt()
+            if (inputIndex < input.size) {
+                output[i] = input[inputIndex]
+            }
+        }
+        
+        return output
     }
 
     private fun cleanup(result: MethodChannel.Result) {
