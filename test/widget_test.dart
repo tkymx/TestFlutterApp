@@ -22,6 +22,9 @@ void main() {
       expect(find.text('タスクリスト'), findsOneWidget);
       expect(find.text('ボイスメモ'), findsOneWidget);
 
+      // アプリバーのタイトルが表示されることを確認
+      expect(find.text('音声タスクリスト'), findsOneWidget);
+
       // 初期状態では「タスクがありません」メッセージが表示されることを確認
       expect(find.textContaining('タスクがありません'), findsOneWidget);
 
@@ -53,6 +56,13 @@ void main() {
 
       // 空のメッセージが表示されることを確認
       expect(find.textContaining('タスクがありません'), findsOneWidget);
+      
+      // 環境に応じたメッセージが表示されることを確認（Web環境かモバイル環境か）
+      final hasWebMessage = find.textContaining('Webでは音声機能は利用できません').evaluate().isNotEmpty;
+      final hasMobileMessage = find.textContaining('右下の録音ボタンでタスクを追加してください').evaluate().isNotEmpty;
+      
+      // どちらかのメッセージが表示されていることを確認
+      expect(hasWebMessage || hasMobileMessage, isTrue);
     });
 
     testWidgets('タスクリスト基本機能テスト', (WidgetTester tester) async {
