@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'voice_memo_page.dart';
 import 'settings_page.dart';
+import 'unified_voice_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -157,184 +158,123 @@ class TaskListPage extends StatefulWidget {
 }
 
 class _TaskListPageState extends State<TaskListPage> {
-  static const MethodChannel _channel = MethodChannel('android_speech_recognition');
-  final TextEditingController _textController = TextEditingController();
+  final UnifiedVoiceService _voiceService = UnifiedVoiceService();
   
   List<Task> _tasks = [];
-  bool _speechEnabled = false;
-  bool _speechListening = false;
-  String _lastWords = '';
-  String _accumulatedText = ''; // 連続音声認識で蓄積されるテキスト
+  bool _isInitialized = false;
+  bool _isRecording = false;
+  String _draftTaskContent = '';
+  bool _showDraftCard = false;
 
   @override
   void initState() {
     super.initState();
-    _initSpeech();
+    _initVoiceService();
     _loadTasks();
   }
 
-  void _initSpeech() async {
-    // Webプラットフォームでは音声入力を無効にする
+  void _initVoiceService() async {
+    try {
+      bool success = await _voiceService.initialize();
+      if (success) {
+        _setupVoiceServiceCallbacks();
+      }
+      setState(() {
+        _isInitialized = true;
+      });
+    } catch (e) {
+      setState(() {
+        _isInitialized = true;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('音声サービスの初期化に失敗しました: $e')),
+        );
+      }
+    }
+  }
+
+  void _setupVoiceServiceCallbacks() {
+    _voiceService.onTranscriptionUpdated = (text) {
+      setState(() {
+        _draftTaskContent = text;
+      });
+    };
+    
+    _voiceService.onRecordingStateChanged = (isRecording) {
+      setState(() {
+        _isRecording = isRecording;
+        if (!isRecording) {
+          // 録音停止時の処理は特になし（ドラフトカードは表示したまま）
+        }
+      });
+    };
+    
+    _voiceService.onError = (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error)),
+        );
+      }
+    };
+  }
+
+  void _startVoiceRecording() async {
     if (kIsWeb) {
-      _speechEnabled = false;
-      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Webでは音声機能は利用できません')),
+      );
       return;
     }
 
-    try {
-      // マイクの権限をリクエスト
-      var status = await Permission.microphone.request();
-      if (status != PermissionStatus.granted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('マイクの権限が必要です')),
-          );
-        }
-        return;
-      }
-
-      // Android Speech Recognition APIの初期化
-      _setupMethodChannel();
-      
-      try {
-        final result = await _channel.invokeMethod('initialize');
-        _speechEnabled = result == true;
-        if (mounted) {
-          setState(() {});
-        }
-      } catch (e) {
-        print('Android Speech Recognition API初期化エラー: $e');
-        _speechEnabled = false;
-        if (mounted) {
-          setState(() {});
-        }
-      }
-      
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('音声認識の初期化に失敗しました: $e')),
-        );
-      }
+    if (!_voiceService.speechEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('音声認識機能が利用できません')),
+      );
+      return;
     }
-  }
 
-  void _setupMethodChannel() {
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onPartialResult':
-          final text = call.arguments as String;
-          setState(() {
-            _lastWords = text;
-            // 部分的な結果は現在の蓄積テキストに一時的に追加して表示
-            _textController.text = _accumulatedText + (_accumulatedText.isNotEmpty ? ' ' : '') + text;
-          });
-          break;
-        case 'onFinalResult':
-          final text = call.arguments as String;
-          setState(() {
-            _lastWords = text;
-            // 最終結果は蓄積テキストに追加
-            if (text.trim().isNotEmpty) {
-              _accumulatedText += (_accumulatedText.isNotEmpty ? ' ' : '') + text.trim();
-              _textController.text = _accumulatedText;
-            }
-          });
-          break;
-        case 'onError':
-          final error = call.arguments as String;
-          print('音声認識エラー: $error');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('音声認識エラー: $error')),
-            );
-          }
-          setState(() {
-            _speechListening = false;
-          });
-          break;
-        case 'onListeningStarted':
-          print('音声認識開始');
-          break;
-        case 'onListeningStopped':
-          print('音声認識停止');
-          if (_speechListening) {
-            setState(() {
-              _speechListening = false;
-            });
-          }
-          break;
-      }
+    setState(() {
+      _showDraftCard = true;
+      _draftTaskContent = '';
     });
+
+    await _voiceService.startContinuousListening();
   }
 
-  void _startListening() async {
-    try {
-      print('音声認識開始');
-      
-      // 音声認識開始時に蓄積テキストを現在のテキストフィールドの内容で初期化
-      _accumulatedText = _textController.text.trim();
-      
-      await _channel.invokeMethod('startListening', {
-        'locale': 'ja-JP',
-        'partialResults': true,
-        'maxResults': 5,
-      });
-      
-      setState(() {
-        _speechListening = true;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('音声認識開始 - 話しかけてください')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('音声認識の開始に失敗しました: $e')),
-        );
-      }
-    }
+  void _stopVoiceRecording() async {
+    await _voiceService.stopListening();
   }
 
-  void _stopListening() async {
-    try {
-      await _channel.invokeMethod('stopListening');
-      setState(() {
-        _speechListening = false;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('音声認識の停止に失敗しました: $e')),
-        );
-      }
-    }
-  }
-
-  void _addTask() {
-    if (_textController.text.trim().isEmpty) return;
+  void _addDraftTask() {
+    if (_draftTaskContent.trim().isEmpty) return;
 
     final newTask = Task(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      content: _textController.text.trim(),
+      content: _draftTaskContent.trim(),
       createdAt: DateTime.now(),
     );
 
     setState(() {
       _tasks.insert(0, newTask);
-      _textController.clear();
-      _lastWords = '';
-      _accumulatedText = ''; // 蓄積テキストもクリア
+      _showDraftCard = false;
+      _draftTaskContent = '';
     });
 
+    _stopVoiceRecording();
     _saveTasks();
     
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('タスクを追加しました')),
     );
+  }
+
+  void _cancelDraftTask() {
+    setState(() {
+      _showDraftCard = false;
+      _draftTaskContent = '';
+    });
+    _stopVoiceRecording();
   }
 
   void _toggleTask(int index) {
@@ -344,35 +284,7 @@ class _TaskListPageState extends State<TaskListPage> {
     _saveTasks();
   }
 
-  void _deleteTask(int index) {
-    final task = _tasks[index];
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('タスクを削除'),
-        content: Text('「${task.content}」を削除しますか？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('キャンセル'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _tasks.removeAt(index);
-              });
-              _saveTasks();
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('タスクを削除しました')),
-              );
-            },
-            child: const Text('削除', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   void _saveTasks() async {
     final prefs = await SharedPreferences.getInstance();
@@ -393,6 +305,18 @@ class _TaskListPageState extends State<TaskListPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return Scaffold(
+        appBar: AppBar(
+          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+          title: Text(widget.title),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
@@ -400,119 +324,101 @@ class _TaskListPageState extends State<TaskListPage> {
       ),
       body: Column(
         children: [
-          // 音声入力エリア
-          Container(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _textController,
-                  decoration: InputDecoration(
-                    hintText: kIsWeb ? 'タスクを入力してください' : 'タスクを入力するか音声入力ボタンをタップ',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.task_alt),
-                    suffixIcon: _textController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _textController.clear();
-                              _accumulatedText = ''; // 蓄積テキストもクリア
-                              setState(() {});
-                            },
-                          )
-                        : null,
-                  ),
-                  minLines: 1,
-                  maxLines: 10, // 最大10行まで拡張
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  onChanged: (value) {
-                    // 手動入力時は蓄積テキストも更新
-                    if (!_speechListening) {
-                      _accumulatedText = value;
-                    }
-                    setState(() {});
-                  },
-                  onSubmitted: (value) {
-                    if (value.trim().isNotEmpty) {
-                      _addTask();
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    // 音声入力ボタン（Webでは無効）
-                    if (!kIsWeb)
-                      ElevatedButton.icon(
-                        onPressed: _speechEnabled
-                            ? (_speechListening ? _stopListening : _startListening)
-                            : null,
-                        icon: Icon(_speechListening ? Icons.mic : (_speechEnabled ? Icons.mic_none : Icons.mic_off)),
-                        label: Text(_speechListening 
-                            ? '録音停止' 
-                            : (_speechEnabled ? '音声入力' : '音声認識無効')),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _speechListening 
-                              ? Colors.red 
-                              : (_speechEnabled ? Colors.blue : Colors.grey),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        ),
+          // ドラフトタスクカード
+          if (_showDraftCard)
+            Container(
+              margin: const EdgeInsets.all(16.0),
+              child: Card(
+                elevation: 4,
+                color: Colors.orange.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            _isRecording ? Icons.mic : Icons.mic_off,
+                            color: _isRecording ? Colors.red : Colors.grey,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _isRecording ? '音声認識中...' : '音声認識完了',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: _isRecording ? Colors.red : Colors.grey,
+                            ),
+                          ),
+                          if (_isRecording) ...[
+                            const SizedBox(width: 8),
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                    // 追加ボタン
-                    ElevatedButton.icon(
-                      onPressed: _addTask,
-                      icon: const Icon(Icons.add),
-                      label: const Text('追加'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_speechListening && !kIsWeb)
-                  Container(
-                    margin: const EdgeInsets.only(top: 16.0),
-                    padding: const EdgeInsets.all(12.0),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8.0),
-                      border: Border.all(color: Colors.red.withOpacity(0.3)),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.mic, color: Colors.red, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          '音声を認識中...',
-                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12.0),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8.0),
+                          border: Border.all(color: Colors.grey.shade300),
                         ),
-                        SizedBox(width: 8),
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                        child: Text(
+                          _draftTaskContent.isEmpty 
+                              ? '音声を認識中です...' 
+                              : _draftTaskContent,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: _draftTaskContent.isEmpty 
+                                ? Colors.grey 
+                                : Colors.black,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: _cancelDraftTask,
+                            icon: const Icon(Icons.cancel),
+                            label: const Text('キャンセル'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.grey,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: _draftTaskContent.trim().isNotEmpty 
+                                ? _addDraftTask 
+                                : null,
+                            icon: const Icon(Icons.add_task),
+                            label: const Text('タスク追加'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
-          ),
-          const Divider(),
           // タスクリスト
           Expanded(
             child: _tasks.isEmpty
                 ? _buildEmptyMessage()
-                  
                 : ListView.builder(
                     padding: const EdgeInsets.all(8.0),
                     itemCount: _tasks.length,
@@ -594,15 +500,12 @@ class _TaskListPageState extends State<TaskListPage> {
                               '作成日時: ${task.createdAt.month}/${task.createdAt.day} ${task.createdAt.hour}:${task.createdAt.minute.toString().padLeft(2, '0')}',
                               style: const TextStyle(fontSize: 12),
                             ),
-                            trailing: Row(
+                            trailing: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.swipe_left, color: Colors.grey, size: 16),
-                                const SizedBox(width: 4),
-                                IconButton(
-                                  icon: const Icon(Icons.delete, color: Colors.red),
-                                  onPressed: () => _deleteTask(index),
-                                ),
+                                Icon(Icons.swipe_left, color: Colors.grey, size: 16),
+                                SizedBox(width: 4),
+                                Text('スワイプで削除', style: TextStyle(color: Colors.grey, fontSize: 12)),
                               ],
                             ),
                           ),
@@ -613,12 +516,12 @@ class _TaskListPageState extends State<TaskListPage> {
           ),
         ],
       ),
-      floatingActionButton: !kIsWeb && _speechEnabled
+      floatingActionButton: !kIsWeb && !_showDraftCard && _isInitialized
           ? FloatingActionButton(
-              onPressed: _speechListening ? _stopListening : _startListening,
-              backgroundColor: _speechListening ? Colors.red : Colors.blue,
-              child: Icon(
-                _speechListening ? Icons.stop : Icons.mic,
+              onPressed: _startVoiceRecording,
+              backgroundColor: _voiceService.speechEnabled ? Colors.blue : Colors.grey,
+              child: const Icon(
+                Icons.mic,
                 color: Colors.white,
               ),
             )
@@ -631,7 +534,7 @@ class _TaskListPageState extends State<TaskListPage> {
     if (kIsWeb) {
       return const Center(
         child: Text(
-          'タスクがありません\nテキスト入力でタスクを追加してください',
+          'タスクがありません\nWebでは音声機能は利用できません',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 16, color: Colors.grey),
         ),
@@ -639,7 +542,7 @@ class _TaskListPageState extends State<TaskListPage> {
     } else {
       return const Center(
         child: Text(
-          'タスクがありません\n音声入力またはテキスト入力でタスクを追加してください',
+          'タスクがありません\n右下の録音ボタンでタスクを追加してください',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 16, color: Colors.grey),
         ),
@@ -649,7 +552,7 @@ class _TaskListPageState extends State<TaskListPage> {
 
   @override
   void dispose() {
-    _textController.dispose();
+    _voiceService.stopListening();
     super.dispose();
   }
 }
