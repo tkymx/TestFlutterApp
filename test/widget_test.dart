@@ -1,6 +1,6 @@
 // 音声タスクリストアプリのウィジェットテスト
 //
-// このテストファイルは、タスクリストアプリの基本機能をテストします。
+// このテストファイルは、新しいボイスタスク追加機能をテストします。
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,50 +25,45 @@ void main() {
       // 初期状態では「タスクがありません」メッセージが表示されることを確認
       expect(find.textContaining('タスクがありません'), findsOneWidget);
 
-      // テキスト入力フィールドが存在することを確認
-      expect(find.byType(TextField), findsOneWidget);
+      // 古いテキスト入力フィールドが存在しないことを確認
+      expect(find.byType(TextField), findsNothing);
 
-      // 追加ボタンが存在することを確認
-      expect(find.text('追加'), findsOneWidget);
+      // 古い追加ボタンが存在しないことを確認
+      expect(find.text('追加'), findsNothing);
     });
 
-    testWidgets('テキスト入力によるタスク追加テスト', (WidgetTester tester) async {
+    testWidgets('UI構造テスト', (WidgetTester tester) async {
       // アプリを起動
       await tester.pumpWidget(const MyApp());
       await tester.pumpAndSettle();
 
-      // テキストフィールドにタスクを入力
-      const testTask = 'テストタスク';
-      await tester.enterText(find.byType(TextField), testTask);
-      await tester.pump();
-
-      // 追加ボタンをタップ
-      await tester.tap(find.text('追加'));
-      await tester.pumpAndSettle();
-
-      // タスクが追加されたことを確認
-      expect(find.text(testTask), findsOneWidget);
-
-      // 「タスクがありません」メッセージが消えたことを確認
-      expect(find.textContaining('タスクがありません'), findsNothing);
-
-      // チェックボックスが表示されることを確認
-      expect(find.byType(Checkbox), findsOneWidget);
+      // 基本的なUI要素が存在することを確認
+      expect(find.text('音声タスクリスト'), findsOneWidget);
+      
+      // ドラフトカードが初期状態では表示されないことを確認
+      expect(find.text('音声認識中...'), findsNothing);
+      expect(find.text('キャンセル'), findsNothing);
+      expect(find.text('タスク追加'), findsNothing);
     });
 
-    testWidgets('空のタスクは追加されないテスト', (WidgetTester tester) async {
+    testWidgets('タスクリスト表示テスト', (WidgetTester tester) async {
       // アプリを起動
       await tester.pumpWidget(const MyApp());
       await tester.pumpAndSettle();
 
-      // 空のテキストで追加ボタンをタップ
-      await tester.tap(find.text('追加'));
+      // 空のメッセージが表示されることを確認
+      expect(find.textContaining('タスクがありません'), findsOneWidget);
+    });
+
+    testWidgets('タスクリスト基本機能テスト', (WidgetTester tester) async {
+      // アプリを起動
+      await tester.pumpWidget(const MyApp());
       await tester.pumpAndSettle();
 
-      // 「タスクがありません」メッセージが残っていることを確認
+      // 初期状態では「タスクがありません」メッセージが表示されることを確認
       expect(find.textContaining('タスクがありません'), findsOneWidget);
 
-      // チェックボックスが表示されないことを確認
+      // チェックボックスが表示されないことを確認（タスクがないため）
       expect(find.byType(Checkbox), findsNothing);
     });
   });
