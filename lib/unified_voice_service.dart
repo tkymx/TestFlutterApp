@@ -204,10 +204,19 @@ class UnifiedVoiceService {
       
       // Vosk Speech Recognition APIの初期化
       try {
-        final result = await _channel.invokeMethod('initialize');
+        // 保存された現在のモデルを読み込み
+        final prefs = await SharedPreferences.getInstance();
+        final currentModel = prefs.getString('current_vosk_model') ?? 'small';
+        final modelPath = await _getModelPath(currentModel);
+        print('現在設定されているモデル: $currentModel, パス: $modelPath');
+        
+        final result = await _channel.invokeMethod('initialize', {
+          'modelId': currentModel,
+          'modelPath': modelPath
+        });
         _speechEnabled = result == true;
         if (_speechEnabled) {
-          print('Vosk Speech Recognition APIの初期化に成功しました');
+          print('Vosk Speech Recognition APIの初期化に成功しました (モデル: $currentModel)');
         } else {
           print('Vosk Speech Recognition APIの初期化に失敗しました');
         }
@@ -1003,12 +1012,89 @@ class UnifiedVoiceService {
   /// モデル変更
   Future<bool> setModel(String modelId) async {
     try {
-      final result = await _channel.invokeMethod('setModel', {'modelId': modelId});
+      // 設定を保存
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_vosk_model', modelId);
+      
+      // モデルパスを取得
+      final modelPath = await _getModelPath(modelId);
+      print('モデル変更: $modelId, パス: $modelPath');
+      
+      // 音声認識が動作中の場合は停止
+      bool wasListening = _isContinuousListening;
+      if (wasListening) {
+        await stopListening();
+      }
+      
+      // モデル変更
+      final result = await _channel.invokeMethod('setModel', {
+        'modelId': modelId,
+        'modelPath': modelPath
+      });
+      print('モデル変更結果: $result (モデル: $modelId)');
+      
+      // 音声認識が動作していた場合は再開
+      if (wasListening && result == true) {
+        await Future.delayed(const Duration(milliseconds: 500)); // 少し待ってから再開
+        await startContinuousListening();
+      }
+      
       return result == true;
     } catch (e) {
       print('モデル変更エラー: $e');
       onError?.call('モデル変更エラー: $e');
       return false;
+    }
+  }
+
+  /// モデルIDからモデルパスを取得
+  Future<String> _getModelPath(String modelId) async {
+    try {
+      // 最初にSharedPreferencesからパスを取得
+      final prefs = await SharedPreferences.getInstance();
+      final savedPath = prefs.getString('current_vosk_model_path');
+      
+      if (savedPath != null && savedPath.isNotEmpty) {
+        print('保存されたモデルパスを使用: $savedPath');
+        
+        // パスの存在確認
+        if (await Directory(savedPath).exists()) {
+          return savedPath;
+        } else {
+          print('警告: 保存されたパスが存在しません: $savedPath');
+        }
+      }
+      
+      // フォールバック: 従来の方法でパスを生成
+      final directory = await getApplicationDocumentsDirectory();
+      
+      // モデルIDに対応するファイル名を取得
+      String fileName;
+      switch (modelId) {
+        case 'small':
+          fileName = 'vosk-model-small-ja-0.22';
+          break;
+        case 'large':
+          fileName = 'vosk-model-ja-0.22';
+          break;
+        default:
+          fileName = 'vosk-model-small-ja-0.22';
+      }
+      
+      final modelPath = '${directory.path}/$fileName';
+      print('フォールバックモデルパス解決: $modelId -> $modelPath');
+      
+      // パスの存在確認
+      if (!await Directory(modelPath).exists()) {
+        print('警告: モデルディレクトリが存在しません: $modelPath');
+      }
+      
+      return modelPath;
+    } catch (e) {
+      print('モデルパス取得エラー: $e');
+      // 最終フォールバック
+      final directory = await getApplicationDocumentsDirectory();
+      return '${directory.path}/vosk-model-small-ja-0.22';
     }
   }
 
@@ -1020,6 +1106,17 @@ class UnifiedVoiceService {
     } catch (e) {
       print('利用可能なモデル取得エラー: $e');
       return null;
+    }
+  }
+
+  /// 現在使用中のモデルを取得
+  Future<String> getCurrentModel() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('current_vosk_model') ?? 'small';
+    } catch (e) {
+      print('現在のモデル取得エラー: $e');
+      return 'small';
     }
   }
 

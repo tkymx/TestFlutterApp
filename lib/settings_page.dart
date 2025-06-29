@@ -47,7 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
         id: 'large',
         name: '高精度版モデル',
         description: '高精度の音声認識。専門用語や複雑な文章に対応。',
-        size: '120MB',
+        size: '1000MB',
         url: 'https://alphacephei.com/vosk/models/vosk-model-ja-0.22.zip',
         fileName: 'vosk-model-ja-0.22',
         accuracy: '高精度',
@@ -75,13 +75,18 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadCurrentModel() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      _currentModel = prefs.getString('current_vosk_model') ?? 'small';
+      // 音声サービスから現在のモデルを取得
+      _currentModel = await _voiceService.getCurrentModel();
+      print('現在のモデル: $_currentModel');
       if (mounted) {
         setState(() {});
       }
     } catch (e) {
       print('現在のモデル読み込みエラー: $e');
+      _currentModel = 'small'; // デフォルト値
+      if (mounted) {
+        setState(() {});
+      }
     }
   }
 
@@ -90,8 +95,50 @@ class _SettingsPageState extends State<SettingsPage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('current_vosk_model', modelId);
       
-      // 音声認識サービスに新しいモデルを通知
+      // モデル情報を取得
+      final modelInfo = _availableModels[modelId]!;
+      print('モデル切り替え: ${modelInfo.name} (ID: $modelId)');
+      
+      // モデルがインストールされているかチェック
+      final directory = await getApplicationDocumentsDirectory();
+      final modelDir = Directory('${directory.path}/${modelInfo.fileName}');
+      final modelPath = '${directory.path}/${modelInfo.fileName}';
+      
+      print('モデルパス確認: $modelPath');
+      print('ディレクトリ存在: ${await modelDir.exists()}');
+      
+      if (!await modelDir.exists()) {
+        print('エラー: モデルディレクトリが存在しません: $modelPath');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('モデルがインストールされていません。先にダウンロードしてください。'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+      
+      // ディレクトリ内のファイルをチェック
+      try {
+        final files = await modelDir.list().toList();
+        print('モデルディレクトリ内のファイル数: ${files.length}');
+        for (var file in files.take(5)) { // 最初の5ファイルをログ出力
+          print('  - ${file.path}');
+        }
+      } catch (e) {
+        print('ディレクトリ内容確認エラー: $e');
+      }
+      
+      // モデルパスも保存
+      await prefs.setString('current_vosk_model_path', modelPath);
+      print('モデルパスを保存: $modelPath');
+      
+      // 音声認識サービスに新しいモデルを通知（パスも含める）
+      print('音声認識サービスにモデル設定を通知: $modelId, $modelPath');
       final success = await _voiceService.setModel(modelId);
+      print('モデル設定結果: $success');
       
       if (success) {
         if (mounted) {
@@ -108,11 +155,13 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           );
         }
+        print('モデル切り替え成功: ${modelInfo.name}');
       } else {
+        print('エラー: 音声認識サービスでのモデル設定に失敗');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('モデルの変更に失敗しました'),
+              content: Text('モデルの変更に失敗しました。音声認識サービスでの設定でエラーが発生しました。'),
               backgroundColor: Colors.red,
             ),
           );
@@ -152,6 +201,11 @@ class _SettingsPageState extends State<SettingsPage> {
             const Text(
               'ダウンロードには時間がかかる場合があります。続行しますか？',
               style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '注意: 大きなファイルの場合、メモリ不足によりダウンロードや展開に失敗する可能性があります。',
+              style: TextStyle(fontSize: 12, color: Colors.orange),
             ),
           ],
         ),
@@ -193,11 +247,46 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     } catch (e) {
       print('ダウンロードエラー: $e');
+      
+      // エラーの種類に応じて詳細なメッセージを表示
+      String userMessage = _getDetailedErrorMessage(e.toString());
+      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('ダウンロードに失敗しました: $e'),
-            backgroundColor: Colors.red,
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('ダウンロードに失敗しました'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    userMessage,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '対処方法:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '• デバイスの空きメモリを増やしてから再試行\n'
+                    '• 他のアプリを終了してメモリを解放\n'
+                    '• より小さなモデル（最小版）の使用を検討\n'
+                    '• デバイスの再起動後に再試行',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('閉じる'),
+              ),
+            ],
           ),
         );
       }
@@ -208,6 +297,23 @@ class _SettingsPageState extends State<SettingsPage> {
           _downloadProgress = 0.0;
         });
       }
+    }
+  }
+
+  String _getDetailedErrorMessage(String error) {
+    if (error.contains('メモリ不足') || error.contains('Out of Memory') || error.contains('Exhausted heap')) {
+      return 'メモリ不足のため処理に失敗しました。このモデルはファイルサイズが非常に大きく、'
+          'デバイスの利用可能メモリを超えています。';
+    } else if (error.contains('HTTP')) {
+      return 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
+    } else if (error.contains('ZIP') || error.contains('FormatException')) {
+      return 'ダウンロードしたファイルの展開に失敗しました。ファイルが破損している可能性があります。';
+    } else if (error.contains('FileSystemException') || error.contains('容量')) {
+      return 'ストレージの容量不足です。デバイスの空き容量を確保してください。';
+    } else if (error.contains('非常に大きなファイル')) {
+      return 'ファイルサイズが大きすぎるため、このデバイスでは処理できません。';
+    } else {
+      return '予期しないエラーが発生しました: $error';
     }
   }
 
@@ -246,6 +352,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _downloadWithProgress(String url, File targetFile) async {
+    IOSink? sink;
+    
     try {
       print('ダウンロード開始: $url');
       
@@ -259,11 +367,16 @@ class _SettingsPageState extends State<SettingsPage> {
       final contentLength = response.contentLength ?? 0;
       var downloadedBytes = 0;
       
-      final sink = targetFile.openWrite();
+      // 大きなファイルサイズの警告
+      if (contentLength > 500 * 1024 * 1024) { // 500MB以上
+        print('警告: 大きなファイルです ($contentLength bytes). メモリ不足の可能性があります。');
+      }
       
-      await response.stream.listen((chunk) {
-        downloadedBytes += chunk.length;
+      sink = targetFile.openWrite();
+      
+      await for (final chunk in response.stream) {
         sink.add(chunk);
+        downloadedBytes += chunk.length;
         
         if (contentLength > 0) {
           final progress = downloadedBytes / contentLength;
@@ -273,79 +386,183 @@ class _SettingsPageState extends State<SettingsPage> {
             });
           }
         }
-      }).asFuture();
+        
+        // メモリ圧迫を避けるため定期的にflush
+        if (downloadedBytes % (10 * 1024 * 1024) == 0) { // 10MBごと
+          await sink.flush();
+        }
+      }
       
+      await sink.flush();
       await sink.close();
+      sink = null;
       
       print('ダウンロード完了: ${targetFile.path} (${downloadedBytes} bytes)');
+      
+      // ファイルサイズの検証
+      final actualSize = await targetFile.length();
+      if (actualSize != downloadedBytes) {
+        throw Exception('ファイルサイズが一致しません: expected=$downloadedBytes, actual=$actualSize');
+      }
       
     } catch (e) {
       print('ダウンロードエラー: $e');
       
-      // エラーの場合はデモ用のZIPファイルを作成
-      print('デモ用ファイルを作成します...');
-      await _createDemoZipFile(targetFile);
-      
-      // プログレス更新のシミュレーション
-      for (int i = 0; i <= 100; i += 5) {
-        await Future.delayed(const Duration(milliseconds: 50));
-        if (mounted) {
-          setState(() {
-            _downloadProgress = i / 100.0;
-          });
+      // クリーンアップ
+      if (sink != null) {
+        try {
+          await sink.close();
+        } catch (closeError) {
+          print('ファイルクローズエラー: $closeError');
         }
       }
+      
+      // 破損したファイルを削除
+      if (await targetFile.exists()) {
+        try {
+          await targetFile.delete();
+          print('破損したファイルを削除しました: ${targetFile.path}');
+        } catch (deleteError) {
+          print('ファイル削除エラー: $deleteError');
+        }
+      }
+      
+      // エラーを再投げ（デモファイルは作成しない）
+      throw e;
     }
   }
 
-  Future<void> _createDemoZipFile(File zipFile) async {
-    // デモ用のZIPファイルを作成
-    final archive = Archive();
-    
-    // デモ用のモデルファイルを作成
-    final demoFiles = [
-      'am/final.mdl',
-      'graph/HCLG.fst',
-      'graph/phones.txt',
-      'graph/words.txt',
-      'conf/mfcc.conf',
-      'conf/model.conf',
-    ];
-    
-    for (String filePath in demoFiles) {
-      final content = '# Demo Vosk model file\n# File: $filePath\n# This is a demo file for testing purposes.';
-      final file = ArchiveFile(filePath, content.length, content.codeUnits);
-      archive.addFile(file);
-    }
-    
-    // ZIPファイルとして保存
-    final zipData = ZipEncoder().encode(archive);
-    if (zipData != null) {
-      await zipFile.writeAsBytes(zipData);
-    }
-  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   Future<void> _extractZipFile(File zipFile, Directory extractDir) async {
     try {
-      final bytes = await zipFile.readAsBytes();
-      final archive = ZipDecoder().decodeBytes(bytes);
+      print('ZIP展開開始: ${zipFile.path}');
+      final fileSize = await zipFile.length();
+      print('ファイルサイズ: $fileSize bytes (${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB)');
       
       await extractDir.create(recursive: true);
       
-      for (final file in archive) {
-        final filename = file.name;
-        final targetFile = File('${extractDir.path}/$filename');
-        
-        if (file.isFile) {
-          await targetFile.parent.create(recursive: true);
-          await targetFile.writeAsBytes(file.content as List<int>);
-        } else {
-          await Directory('${extractDir.path}/$filename').create(recursive: true);
-        }
+      // メモリ使用量の事前チェック
+      if (fileSize > 1000 * 1024 * 1024) { // 1GB以上
+        final errorMessage = '非常に大きなファイルです (${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB)。'
+            'このサイズのファイルは展開時にメモリ不足エラーが発生する可能性が高いです。'
+            'より小さなモデルの使用をお勧めします。';
+        print('エラー: $errorMessage');
+        throw Exception(errorMessage);
       }
+      
+      try {
+        // メモリ効率を考慮した展開処理
+        print('ZIPファイルの展開を開始します...');
+        
+        final bytes = await zipFile.readAsBytes();
+        print('ZIPファイルをメモリに読み込みました: ${bytes.length} bytes');
+        
+        final archive = ZipDecoder().decodeBytes(bytes);
+        print('ZIP内のファイル数: ${archive.length}');
+        
+        int extractedFiles = 0;
+        int totalBytes = 0;
+        
+        for (final file in archive) {
+          final filename = file.name;
+          final targetFile = File('${extractDir.path}/$filename');
+          
+          if (file.isFile) {
+            await targetFile.parent.create(recursive: true);
+            
+            try {
+              await targetFile.writeAsBytes(file.content as List<int>);
+              extractedFiles++;
+              totalBytes += file.size;
+              
+              if (extractedFiles % 20 == 0) {
+                print('展開進捗: $extractedFiles ファイル (${(totalBytes / 1024 / 1024).toStringAsFixed(1)} MB)');
+              }
+            } catch (e) {
+              throw Exception('ファイル展開エラー ($filename): $e');
+            }
+          } else {
+            await Directory('${extractDir.path}/$filename').create(recursive: true);
+          }
+        }
+        
+        print('ZIP展開完了: $extractedFiles ファイル, ${(totalBytes / 1024 / 1024).toStringAsFixed(1)} MB');
+        
+        // 展開結果の検証
+        if (extractedFiles == 0) {
+          throw Exception('ZIPファイルが空であるか、有効なファイルが含まれていません。');
+        }
+        
+      } catch (e) {
+        // 詳細なエラー分析
+        String detailedError;
+        
+        if (e.toString().contains('Out of Memory') || e.toString().contains('Exhausted heap')) {
+          detailedError = 'メモリ不足エラー: ファイルサイズが大きすぎて展開できません。\n\n'
+              '対処方法:\n'
+              '• デバイスの空きメモリを増やしてください\n'
+              '• より小さなモデルをお試しください\n'
+              '• 他のアプリを終了してからもう一度お試しください\n'
+              '• デバイスを再起動してからお試しください';
+        } else if (e.toString().contains('FormatException') || e.toString().contains('Invalid zip')) {
+          detailedError = 'ZIPファイル形式エラー: ダウンロードしたファイルが破損しているか、正しいZIPファイルではありません。\n\n'
+              '対処方法:\n'
+              '• モデルを再ダウンロードしてください\n'
+              '• ネットワーク接続を確認してください\n'
+              '• 別のモデルをお試しください\n'
+              '• Wi-Fi接続でダウンロードを再実行してください';
+        } else if (e.toString().contains('FileSystemException') || e.toString().contains('No space left')) {
+          detailedError = 'ファイルシステムエラー: ストレージの容量不足または権限の問題です。\n\n'
+              '対処方法:\n'
+              '• デバイスの空き容量を確認してください\n'
+              '• 不要なファイルを削除してください\n'
+              '• アプリの権限設定を確認してください\n'
+              '• デバイスを再起動してからお試しください';
+        } else if (e.toString().contains('非常に大きなファイル')) {
+          detailedError = e.toString();
+        } else {
+          detailedError = 'ZIP展開エラー: $e\n\n'
+              '対処方法:\n'
+              '• モデルを再ダウンロードしてください\n'
+              '• デバイスの空き容量を確認してください\n'
+              '• より小さなモデルをお試しください';
+        }
+        
+        print('詳細エラー: $detailedError');
+        
+        // 既存のファイルをクリア
+        if (await extractDir.exists()) {
+          try {
+            await extractDir.delete(recursive: true);
+            print('展開に失敗したファイルを削除しました');
+          } catch (deleteError) {
+            print('クリーンアップエラー: $deleteError');
+          }
+        }
+        
+        throw Exception(detailedError);
+      }
+      
     } catch (e) {
-      print('ZIP展開エラー: $e');
-      throw e;
+      print('ZIP展開処理エラー: $e');
+      throw e; // エラーを再投げ（デモファイルは作成しない）
     }
   }
 
@@ -578,6 +795,80 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 8),
                     Text('${(_downloadProgress * 100).toInt()}%'),
                   ],
+                ],
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // デバッグ情報
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'デバッグ情報',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('現在のモデル: $_currentModel'),
+                  Text('音声認識可能: ${_voiceService.speechEnabled ? "はい" : "いいえ"}'),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: () async {
+                      final installedModels = await _voiceService.getInstalledModels();
+                      final currentModel = await _voiceService.getCurrentModel();
+                      
+                      // モデルパス情報も取得
+                      final directory = await getApplicationDocumentsDirectory();
+                      final smallModelPath = '${directory.path}/vosk-model-small-ja-0.22';
+                      final largeModelPath = '${directory.path}/vosk-model-ja-0.22';
+                      final smallExists = await Directory(smallModelPath).exists();
+                      final largeExists = await Directory(largeModelPath).exists();
+                      
+                      if (mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('詳細デバッグ情報'),
+                            content: SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('現在のモデル: $currentModel'),
+                                  Text('インストール済みモデル: ${installedModels?.toString() ?? "取得エラー"}'),
+                                  Text('音声認識状態: ${_voiceService.speechEnabled}'),
+                                  Text('初期化状態: ${_voiceService.isInitialized}'),
+                                  const SizedBox(height: 16),
+                                  const Text('ファイルパス情報:', style: TextStyle(fontWeight: FontWeight.bold)),
+                                  Text('小モデルパス: $smallModelPath'),
+                                  Text('小モデル存在: $smallExists'),
+                                  Text('大モデルパス: $largeModelPath'),
+                                  Text('大モデル存在: $largeExists'),
+                                  const SizedBox(height: 16),
+                                  Text('インストール状態: ${_installedModels.toString()}'),
+                                ],
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: const Text('閉じる'),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                    },
+                    child: const Text('詳細デバッグ情報を表示'),
+                  ),
                 ],
               ),
             ),

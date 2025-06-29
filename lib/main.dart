@@ -181,6 +181,9 @@ class _TaskListPageState extends State<TaskListPage> {
       bool success = await _voiceService.initialize();
       if (success) {
         _setupVoiceServiceCallbacks();
+        // 初期化後に現在のモデルを確認
+        final currentModel = await _voiceService.getCurrentModel();
+        print('現在使用中のモデル: $currentModel');
       }
       if (mounted) {
         setState(() {
