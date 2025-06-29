@@ -428,36 +428,63 @@ class MainActivity: FlutterActivity() {
             val recognizer = Recognizer(model, 16000.0f)
             val results = mutableListOf<String>()
             
-            // 音声レベルの分析とノーマライゼーション
+            // 音声レベルの分析とノーマライゼーション（改善版）
             val maxAmplitude = pcmData.maxOfOrNull { abs(it.toInt()) } ?: 1
             val avgAmplitude = pcmData.map { abs(it.toInt()) }.average()
-            Log.d(TAG, "音声レベル分析 - 最大振幅: $maxAmplitude, 平均振幅: ${avgAmplitude.toInt()}")
+            val rmsAmplitude = sqrt(pcmData.map { (it.toInt() * it.toInt()).toDouble() }.average())
             
-            // 音声レベルが低すぎる場合は増幅
-            val normalizedPcmData = if (maxAmplitude < 8000) {
-                val amplifyFactor = (16000.0 / maxAmplitude).coerceAtMost(4.0) // 最大4倍まで増幅
-                Log.d(TAG, "音声レベルが低いため増幅します（倍率: ${String.format("%.2f", amplifyFactor)}）")
-                pcmData.map { sample ->
-                    val amplified = (sample.toInt() * amplifyFactor).toInt()
-                    amplified.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-                }.toShortArray()
-            } else {
-                Log.d(TAG, "音声レベルは適切です")
-                pcmData
+            Log.d(TAG, "音声レベル分析 - 最大振幅: $maxAmplitude, 平均振幅: ${avgAmplitude.toInt()}, RMS: ${rmsAmplitude.toInt()}")
+            
+            // より洗練された音声レベル調整
+            val normalizedPcmData = when {
+                maxAmplitude < 3000 -> {
+                    // 非常に低い音声レベル - 大幅に増幅
+                    val amplifyFactor = (12000.0 / maxAmplitude).coerceAtMost(6.0)
+                    Log.d(TAG, "音声レベルが非常に低いため大幅増幅 (倍率: ${String.format("%.2f", amplifyFactor)})")
+                    pcmData.map { sample ->
+                        val amplified = (sample.toInt() * amplifyFactor).toInt()
+                        amplified.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+                    }.toShortArray()
+                }
+                maxAmplitude < 8000 -> {
+                    // 低い音声レベル - 適度に増幅
+                    val amplifyFactor = (16000.0 / maxAmplitude).coerceAtMost(4.0)
+                    Log.d(TAG, "音声レベルが低いため増幅 (倍率: ${String.format("%.2f", amplifyFactor)})")
+                    pcmData.map { sample ->
+                        val amplified = (sample.toInt() * amplifyFactor).toInt()
+                        amplified.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+                    }.toShortArray()
+                }
+                maxAmplitude > 28000 -> {
+                    // 音声レベルが高すぎる - 軽減
+                    val reduceFactor = 24000.0 / maxAmplitude
+                    Log.d(TAG, "音声レベルが高すぎるため軽減 (倍率: ${String.format("%.2f", reduceFactor)})")
+                    pcmData.map { sample ->
+                        val reduced = (sample.toInt() * reduceFactor).toInt()
+                        reduced.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+                    }.toShortArray()
+                }
+                else -> {
+                    Log.d(TAG, "音声レベルは適切です")
+                    pcmData
+                }
             }
             
+            // ノイズリダクション適用
+            val denoisedData = applyNoiseReduction(normalizedPcmData)
+            
             // PCMデータを16bit shortに変換してチャンクに分けて処理
-            val pcmBytes = ByteArray(normalizedPcmData.size * 2) // 16bit = 2 bytes per sample
-            for (i in normalizedPcmData.indices) {
-                val sample = normalizedPcmData[i].toInt()
+            val pcmBytes = ByteArray(denoisedData.size * 2) // 16bit = 2 bytes per sample
+            for (i in denoisedData.indices) {
+                val sample = denoisedData[i].toInt()
                 pcmBytes[i * 2] = (sample and 0xFF).toByte()
                 pcmBytes[i * 2 + 1] = ((sample shr 8) and 0xFF).toByte()
             }
             
             Log.d(TAG, "PCMバイト配列作成完了: ${pcmBytes.size} bytes")
             
-            // チャンクサイズを調整（3200バイト = 0.1秒分）
-            val chunkSize = 3200
+            // チャンクサイズを最適化（1600バイト = 0.05秒分、より細かい処理で精度向上）
+            val chunkSize = 1600
             var offset = 0
             var chunkCount = 0
             var hasVoiceActivity = false
@@ -483,7 +510,7 @@ class MainActivity: FlutterActivity() {
                     }
                 }
                 
-                val isActiveVoice = chunkMaxAmplitude > 100 // 音声アクティビティの閾値
+                val isActiveVoice = chunkMaxAmplitude > 50 // 音声アクティビティの閾値を下げて感度向上
                 if (isActiveVoice) hasVoiceActivity = true
                 
                 Log.d(TAG, "チャンク処理中: $chunkCount, サイズ: ${adjustedChunk.size}, オフセット: $offset, 最大振幅: $chunkMaxAmplitude, 音声あり: $isActiveVoice")
@@ -805,7 +832,7 @@ class MainActivity: FlutterActivity() {
         return output
     }
 
-    private fun trimSilence(input: ShortArray, threshold: Int = 500): ShortArray {
+    private fun trimSilence(input: ShortArray, threshold: Int = 300): ShortArray {
         if (input.isEmpty()) return input
         
         Log.d(TAG, "無音トリミング開始: 入力サンプル数=${input.size}, 閾値=$threshold")
@@ -1008,5 +1035,85 @@ class MainActivity: FlutterActivity() {
             "large" -> "vosk-model-ja-0.22"
             else -> "vosk-model-small-ja-0.22"
         }
+    }
+    
+    /**
+     * ノイズリダクション機能
+     * ハイパスフィルターとローパスフィルターを適用してノイズを軽減
+     */
+    private fun applyNoiseReduction(input: ShortArray): ShortArray {
+        if (input.isEmpty()) return input
+        
+        Log.d(TAG, "ノイズリダクション開始: ${input.size} samples")
+        
+        // ハイパスフィルター（低周波ノイズ除去）
+        val highPassFiltered = applyHighPassFilter(input)
+        
+        // ローパスフィルター（高周波ノイズ除去）
+        val lowPassFiltered = applyLowPassFilter(highPassFiltered)
+        
+        // 振幅の平滑化（スパイクノイズ除去）
+        val smoothed = applySmoothingFilter(lowPassFiltered)
+        
+        Log.d(TAG, "ノイズリダクション完了")
+        return smoothed
+    }
+    
+    /**
+     * ハイパスフィルター（低周波ノイズ除去）
+     * 100Hz以下の成分を除去
+     */
+    private fun applyHighPassFilter(input: ShortArray): ShortArray {
+        val output = input.copyOf()
+        val alpha = 0.9f // フィルター係数
+        
+        for (i in 1 until output.size) {
+            val current = input[i].toFloat()
+            val previous = output[i - 1].toFloat()
+            output[i] = (alpha * (previous + current - input[i - 1])).toInt().coerceIn(
+                Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()
+            ).toShort()
+        }
+        
+        return output
+    }
+    
+    /**
+     * ローパスフィルター（高周波ノイズ除去）
+     * 8000Hz以上の成分を除去
+     */
+    private fun applyLowPassFilter(input: ShortArray): ShortArray {
+        val output = input.copyOf()
+        val alpha = 0.1f // フィルター係数
+        
+        for (i in 1 until output.size) {
+            val current = input[i].toFloat()
+            val previous = output[i - 1].toFloat()
+            output[i] = (alpha * current + (1 - alpha) * previous).toInt().coerceIn(
+                Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()
+            ).toShort()
+        }
+        
+        return output
+    }
+    
+    /**
+     * 振幅平滑化フィルター（スパイクノイズ除去）
+     */
+    private fun applySmoothingFilter(input: ShortArray): ShortArray {
+        val output = input.copyOf()
+        val windowSize = 5
+        
+        for (i in windowSize / 2 until input.size - windowSize / 2) {
+            var sum = 0L
+            for (j in -windowSize / 2..windowSize / 2) {
+                sum += input[i + j].toLong()
+            }
+            output[i] = (sum / windowSize).toInt().coerceIn(
+                Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()
+            ).toShort()
+        }
+        
+        return output
     }
 }

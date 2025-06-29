@@ -802,6 +802,61 @@ class _SettingsPageState extends State<SettingsPage> {
           
           const SizedBox(height: 16),
           
+          // 録音品質設定
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '録音品質設定',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '音声認識の精度を向上させるため、録音品質を最適化します。',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  const ListTile(
+                    leading: Icon(Icons.high_quality, color: Colors.green),
+                    title: Text('高品質録音'),
+                    subtitle: Text('192kbps AAC-LC、44.1kHz モノラル'),
+                    trailing: Icon(Icons.check_circle, color: Colors.green),
+                  ),
+                  
+                  const ListTile(
+                    leading: Icon(Icons.noise_control_off, color: Colors.blue),
+                    title: Text('ノイズリダクション'),
+                    subtitle: Text('背景ノイズを自動的に軽減'),
+                    trailing: Icon(Icons.check_circle, color: Colors.green),
+                  ),
+                  
+                  const ListTile(
+                    leading: Icon(Icons.volume_up, color: Colors.orange),
+                    title: Text('自動音声レベル調整'),
+                    subtitle: Text('音声が小さい場合に自動で増幅'),
+                    trailing: Icon(Icons.check_circle, color: Colors.green),
+                  ),
+                  
+                  const ListTile(
+                    leading: Icon(Icons.monitor, color: Colors.purple),
+                    title: Text('リアルタイム品質監視'),
+                    subtitle: Text('録音中の品質を監視してアドバイス表示'),
+                    trailing: Icon(Icons.check_circle, color: Colors.green),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
           // デバッグ情報
           Card(
             child: Padding(

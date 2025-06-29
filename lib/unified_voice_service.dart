@@ -97,7 +97,9 @@ class UnifiedVoiceService {
   // タイマー管理
   Timer? _restartTimer;
   Timer? _soundLevelTimer;
+  Timer? _qualityMonitorTimer; // 録音品質監視タイマー
   int _restartAttempts = 0;
+  int _qualityCheckInterval = 0; // 品質チェックの間隔カウンター
   static const int maxRestartAttempts = 5;
   static const Duration _restartInterval = Duration(seconds: 50);
   static const Duration _soundLevelUpdateInterval = Duration(milliseconds: 100);
@@ -550,6 +552,32 @@ class UnifiedVoiceService {
   void _stopTimers() {
     _restartTimer?.cancel();
     _soundLevelTimer?.cancel();
+    _qualityMonitorTimer?.cancel();
+  }
+  
+  /// 録音品質監視の開始
+  void _startQualityMonitoring() {
+    _qualityMonitorTimer?.cancel();
+    _qualityCheckInterval = 0;
+    
+    _qualityMonitorTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      _qualityCheckInterval++;
+      
+      // 音声レベルが低すぎる場合の警告
+      if (_soundLevel < 0.1 && _qualityCheckInterval > 3) {
+        onStatusChanged?.call('音声レベルが低いです。マイクに近づいてください');
+      }
+      
+      // 長時間無音の場合の警告
+      if (_soundLevel < 0.05 && _qualityCheckInterval > 5) {
+        onStatusChanged?.call('音声が検出されていません。話しかけてください');
+      }
+      
+      // 録音が停止した場合はタイマーを停止
+      if (!_isVoiceMemoRecording && !_isRecording) {
+        timer.cancel();
+      }
+    });
   }
 
   /// ボイスメモ専用の録音開始
@@ -569,12 +597,16 @@ class UnifiedVoiceService {
       onRecordingStateChanged?.call(true);
       onStatusChanged?.call('録音開始');
       
-      // 録音開始
+      // 録音品質監視開始
+      _startQualityMonitoring();
+      
+      // 録音開始（高品質設定）
       await _recorder.start(
         RecordConfig(
           encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
+          bitRate: 192000,     // 128kbps -> 192kbps に向上
+          sampleRate: 44100,   // 44.1kHz維持（高品質）
+          numChannels: 1,      // モノラル（音声認識に最適）
         ),
         path: filePath,
       );
@@ -601,6 +633,9 @@ class UnifiedVoiceService {
       _isProcessingVoiceMemo = true; // 処理中フラグを設定
       onRecordingStateChanged?.call(false);
       onStatusChanged?.call('録音停止 - 処理中...');
+      
+      // 録音品質監視停止
+      _qualityMonitorTimer?.cancel();
       
       // 録音ファイルが存在する場合、Voskで書き起こしを実行
       if (recordedPath != null && _voiceMemoRecordingStartTime != null) {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
@@ -167,7 +166,9 @@ class _TaskListPageState extends State<TaskListPage> {
   bool _isRecording = false;
   String _draftTaskContent = '';
   bool _showDraftCard = false;
-  bool _isExpanded = false; // アコーディオン表示用
+  bool _isCompletedExpanded = false; // 完了タスクのアコーディオン表示用
+  String? _swipedTaskId; // スワイプされているタスクのID
+  String _initializationStatus = '音声サービスを初期化中...'; // 初期化状況表示用
 
   @override
   void initState() {
@@ -178,22 +179,44 @@ class _TaskListPageState extends State<TaskListPage> {
 
   void _initVoiceService() async {
     try {
+      setState(() {
+        _initializationStatus = 'Voskモデルをロード中...';
+      });
+      
       bool success = await _voiceService.initialize();
+      
       if (success) {
+        setState(() {
+          _initializationStatus = 'コールバックを設定中...';
+        });
+        
         _setupVoiceServiceCallbacks();
+        
+        setState(() {
+          _initializationStatus = 'モデル情報を取得中...';
+        });
+        
         // 初期化後に現在のモデルを確認
         final currentModel = await _voiceService.getCurrentModel();
         print('現在使用中のモデル: $currentModel');
+        
+        // ビューコンパイル完了を待つための少し長めの遅延
+        setState(() {
+          _initializationStatus = 'UIの最適化中...';
+        });
       }
+      
       if (mounted) {
         setState(() {
           _isInitialized = true;
+          _initializationStatus = '初期化完了';
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isInitialized = true;
+          _initializationStatus = '初期化失敗';
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('音声サービスの初期化に失敗しました: $e')),
@@ -310,14 +333,310 @@ class _TaskListPageState extends State<TaskListPage> {
     _stopVoiceRecording();
   }
 
-  void _toggleTask(int index) {
-    if (mounted) {
-      setState(() {
-        _tasks[index].isCompleted = !_tasks[index].isCompleted;
-      });
+
+
+  // タスクの順番変更
+  void _onReorderTasks(int oldIndex, int newIndex) {
+    if (oldIndex < newIndex) {
+      newIndex -= 1;
     }
+    
+    final incompleteTasks = _incompleteTasks;
+    final task = incompleteTasks.removeAt(oldIndex);
+    incompleteTasks.insert(newIndex, task);
+    
+    // 元のリストを再構築
+    final newTasks = <Task>[];
+    newTasks.addAll(incompleteTasks);
+    newTasks.addAll(_completedTasks);
+    
+    setState(() {
+      _tasks = newTasks;
+    });
+    
     _saveTasks();
   }
+
+  // タスクIDでトグル
+  void _toggleTaskById(String taskId) {
+    final taskIndex = _tasks.indexWhere((task) => task.id == taskId);
+    if (taskIndex != -1) {
+      setState(() {
+        _tasks[taskIndex].isCompleted = !_tasks[taskIndex].isCompleted;
+      });
+      _saveTasks();
+    }
+  }
+
+  // 削除確認付きタスク削除
+  void _deleteTaskWithConfirm(Task task) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('タスクを削除'),
+        content: Text('「${task.content}」を削除しますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('削除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirm == true) {
+      _deleteTask(task.id);
+    }
+  }
+
+  // タスク削除
+  void _deleteTask(String taskId) {
+    final taskIndex = _tasks.indexWhere((task) => task.id == taskId);
+    if (taskIndex != -1) {
+      final task = _tasks[taskIndex];
+      setState(() {
+        _tasks.removeAt(taskIndex);
+      });
+      _saveTasks();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('「${task.content}」を削除しました'),
+          action: SnackBarAction(
+            label: '元に戻す',
+            onPressed: () {
+              setState(() {
+                _tasks.insert(taskIndex, task);
+              });
+              _saveTasks();
+            },
+          ),
+        ),
+      );
+    }
+  }
+
+  // 未完了タスクと完了タスクを分離
+  List<Task> get _incompleteTasks => _tasks.where((task) => !task.isCompleted).toList();
+  List<Task> get _completedTasks => _tasks.where((task) => task.isCompleted).toList();
+
+  // タスクリスト構築
+  Widget _buildTaskList() {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          // 未完了タスク
+          SizedBox(
+            height: _completedTasks.isNotEmpty && _isCompletedExpanded 
+                ? MediaQuery.of(context).size.height * 0.4  // 完了タスクが展開されている場合は高さを制限
+                : MediaQuery.of(context).size.height * 0.7, // 未完了タスクのみの場合は大きな高さ
+            child: ReorderableListView.builder(
+              padding: const EdgeInsets.all(8.0),
+              itemCount: _incompleteTasks.length,
+              onReorder: _onReorderTasks,
+              itemBuilder: (context, index) {
+                final task = _incompleteTasks[index];
+                return _buildTaskCard(task, index, true);
+              },
+            ),
+          ),
+          // 完了タスクアコーディオン
+          if (_completedTasks.isNotEmpty) _buildCompletedTasksSection(),
+        ],
+      ),
+    );
+  }
+
+  // 完了タスクセクション
+  Widget _buildCompletedTasksSection() {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(
+              _isCompletedExpanded ? Icons.expand_less : Icons.expand_more,
+            ),
+            title: Text(
+              '完了済みタスク (${_completedTasks.length}件)',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            onTap: () {
+              setState(() {
+                _isCompletedExpanded = !_isCompletedExpanded;
+              });
+            },
+          ),
+          if (_isCompletedExpanded)
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.5, // 最大高さを画面の半分に制限
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                physics: const AlwaysScrollableScrollPhysics(), // スクロールを有効化
+                itemCount: _completedTasks.length,
+                itemBuilder: (context, index) {
+                  final task = _completedTasks[index];
+                  return _buildTaskCard(task, index, false);
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // タスクカード構築
+  Widget _buildTaskCard(Task task, int index, bool isIncomplete) {
+    final isSwipedOpen = _swipedTaskId == task.id;
+    
+    return GestureDetector(
+      onTap: () {
+        // 他のカードがスワイプされている場合は閉じる
+        if (_swipedTaskId != null && _swipedTaskId != task.id) {
+          setState(() {
+            _swipedTaskId = null;
+          });
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+        child: Stack(
+          children: [
+            // 背景（ボタン部分）
+            if (isSwipedOpen)
+              Container(
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12.0),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    // コピーボタン
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: task.content));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('「${task.content}」をコピーしました')),
+                          );
+                          setState(() {
+                            _swipedTaskId = null; // スワイプ状態を閉じる
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(8.0),
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                          child: const Icon(
+                            Icons.copy,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    // 削除ボタン
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _swipedTaskId = null; // スワイプ状態を閉じる
+                          });
+                          _deleteTaskWithConfirm(task);
+                        },
+                        borderRadius: BorderRadius.circular(8.0),
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                          child: const Icon(
+                            Icons.delete,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                  ],
+                ),
+              ),
+            // 前面のカード
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              transform: Matrix4.translationValues(
+                isSwipedOpen ? -152.0 : 0.0, // ボタンの幅分だけ左に移動
+                0.0,
+                0.0,
+              ),
+              child: GestureDetector(
+                onPanUpdate: (details) {
+                  // 右から左へのスワイプを検出
+                  if (details.delta.dx < -5) {
+                    setState(() {
+                      _swipedTaskId = task.id;
+                    });
+                  }
+                  // 左から右へのスワイプで閉じる
+                  else if (details.delta.dx > 5 && isSwipedOpen) {
+                    setState(() {
+                      _swipedTaskId = null;
+                    });
+                  }
+                },
+                child: Card(
+                  key: ValueKey(task.id),
+                  child: ListTile(
+                    leading: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: Checkbox(
+                        value: task.isCompleted,
+                        onChanged: (_) => _toggleTaskById(task.id),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    title: Text(
+                      task.content,
+                      style: TextStyle(
+                        decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                        color: task.isCompleted ? Colors.grey : null,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '作成日時: ${task.createdAt.month}/${task.createdAt.day} ${task.createdAt.hour}:${task.createdAt.minute.toString().padLeft(2, '0')}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: isIncomplete ? const Icon(Icons.drag_handle, color: Colors.grey) : null,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
 
 
 
@@ -348,8 +667,25 @@ class _TaskListPageState extends State<TaskListPage> {
           backgroundColor: Theme.of(context).colorScheme.inversePrimary,
           title: Text(widget.title),
         ),
-        body: const Center(
-          child: CircularProgressIndicator(),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 24),
+              Text(
+                _initializationStatus,
+                style: const TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '初回起動時は時間がかかる場合があります',
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -456,135 +792,7 @@ class _TaskListPageState extends State<TaskListPage> {
           Expanded(
             child: _tasks.isEmpty
                 ? _buildEmptyMessage()
-                : Column(
-                    children: [
-                      // タスク数が多い場合はアコーディオンヘッダーを表示
-                      if (_tasks.length > 5)
-                        Card(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 16.0,
-                            vertical: 8.0,
-                          ),
-                          child: ListTile(
-                            leading: Icon(
-                              _isExpanded ? Icons.expand_less : Icons.expand_more,
-                            ),
-                            title: Text(
-                              'タスク一覧 (${_tasks.length}件)',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: _isExpanded 
-                                ? const Text('タップして折りたたむ')
-                                : const Text('タップして展開'),
-                            onTap: () {
-                              setState(() {
-                                _isExpanded = !_isExpanded;
-                              });
-                            },
-                          ),
-                        ),
-                      // タスクリスト本体
-                      Expanded(
-                        child: _tasks.length <= 5 || _isExpanded
-                            ? ListView.builder(
-                                padding: const EdgeInsets.all(8.0),
-                                itemCount: _tasks.length,
-                                itemBuilder: (context, index) {
-                                  final task = _tasks[index];
-                                  return Card(
-                                    margin: const EdgeInsets.symmetric(
-                                      horizontal: 8.0,
-                                      vertical: 4.0,
-                                    ),
-                                    child: Dismissible(
-                                      key: Key(task.id),
-                                      direction: DismissDirection.endToStart,
-                                      background: Container(
-                                        alignment: Alignment.centerRight,
-                                        padding: const EdgeInsets.only(right: 20.0),
-                                        color: Colors.red,
-                                        child: const Icon(
-                                          Icons.delete,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      confirmDismiss: (direction) async {
-                                        return await showDialog(
-                                          context: context,
-                                          builder: (context) => AlertDialog(
-                                            title: const Text('タスクを削除'),
-                                            content: Text('「${task.content}」を削除しますか？'),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () => Navigator.of(context).pop(false),
-                                                child: const Text('キャンセル'),
-                                              ),
-                                              TextButton(
-                                                onPressed: () => Navigator.of(context).pop(true),
-                                                child: const Text('削除', style: TextStyle(color: Colors.red)),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                      onDismissed: (direction) {
-                                        if (mounted) {
-                                          setState(() {
-                                            _tasks.removeAt(index);
-                                          });
-                                        }
-                                        _saveTasks();
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text('「${task.content}」を削除しました'),
-                                            action: SnackBarAction(
-                                              label: '元に戻す',
-                                              onPressed: () {
-                                                if (mounted) {
-                                                  setState(() {
-                                                    _tasks.insert(index, task);
-                                                  });
-                                                }
-                                                _saveTasks();
-                                              },
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      child: ListTile(
-                                        leading: Checkbox(
-                                          value: task.isCompleted,
-                                          onChanged: (_) => _toggleTask(index),
-                                        ),
-                                        title: Text(
-                                          task.content,
-                                          style: TextStyle(
-                                            decoration: task.isCompleted
-                                                ? TextDecoration.lineThrough
-                                                : null,
-                                            color: task.isCompleted
-                                                ? Colors.grey
-                                                : null,
-                                          ),
-                                        ),
-                                        subtitle: Text(
-                                          '作成日時: ${task.createdAt.month}/${task.createdAt.day} ${task.createdAt.hour}:${task.createdAt.minute.toString().padLeft(2, '0')}',
-                                          style: const TextStyle(fontSize: 12),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              )
-                            : const Center(
-                                child: Text(
-                                  'タスク一覧を見るには上のヘッダーをタップしてください',
-                                  style: TextStyle(fontSize: 16, color: Colors.grey),
-                                ),
-                              ),
-                      ),
-                    ],
-                  ),
+                : _buildTaskList(),
           ),
         ],
       ),
