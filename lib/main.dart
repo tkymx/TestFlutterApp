@@ -440,7 +440,10 @@ class _TaskListPageState extends State<TaskListPage> {
               onReorder: _onReorderTasks,
               itemBuilder: (context, index) {
                 final task = _incompleteTasks[index];
-                return _buildTaskCard(task, index, true);
+                return Container(
+                  key: Key(task.id), // ここでキーを明示的に設定
+                  child: _buildTaskCard(task, index, true),
+                );
               },
             ),
           ),
@@ -603,7 +606,6 @@ class _TaskListPageState extends State<TaskListPage> {
                   }
                 },
                 child: Card(
-                  key: ValueKey(task.id),
                   child: ListTile(
                     leading: SizedBox(
                       width: 24,
