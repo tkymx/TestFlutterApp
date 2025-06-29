@@ -30,7 +30,7 @@ class MyApp extends StatelessWidget {
           elevation: 2,
         ),
         // cardThemeをカスタマイズするが、直接プロパティを設定
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -51,7 +51,7 @@ class MyApp extends StatelessWidget {
           elevation: 2,
         ),
         // こちらも同様に修正
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
