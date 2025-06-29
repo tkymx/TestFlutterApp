@@ -43,9 +43,11 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         print('統合音声サービスの初期化に失敗しました');
       }
       
-      setState(() {
-        _isInitialized = true;
-      });
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+        });
+      }
       
       // 既存のボイスメモを読み込み
       _loadVoiceMemos();
@@ -53,11 +55,11 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
     } catch (e) {
       print('サービス初期化中の例外: $e');
       
-      setState(() {
-        _isInitialized = true;
-      });
-      
       if (mounted) {
+        setState(() {
+          _isInitialized = true;
+        });
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('初期化エラー: $e'),
@@ -70,10 +72,10 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
 
   void _setupServiceCallbacks() {
     _voiceService.onVoiceMemoCreated = (voiceMemo) {
-      setState(() {
-        _voiceMemos.insert(0, voiceMemo);
-      });
       if (mounted) {
+        setState(() {
+          _voiceMemos.insert(0, voiceMemo);
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('新しいボイスメモが作成されました')),
         );
@@ -97,30 +99,38 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
 
   void _setupAudioPlayer() {
     _audioPlayer.onPlayerStateChanged.listen((state) {
-      setState(() {
-        _isPlaying = state == PlayerState.playing;
-      });
+      if (mounted) {
+        setState(() {
+          _isPlaying = state == PlayerState.playing;
+        });
+      }
     });
 
     _audioPlayer.onPositionChanged.listen((position) {
-      setState(() {
-        _currentPosition = position;
-      });
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+        });
+      }
     });
 
     _audioPlayer.onDurationChanged.listen((duration) {
-      setState(() {
-        _totalDuration = duration;
-      });
+      if (mounted) {
+        setState(() {
+          _totalDuration = duration;
+        });
+      }
     });
 
     _audioPlayer.onPlayerComplete.listen((event) {
-      setState(() {
-        _currentPlayingId = null;
-        _isPlaying = false;
-        _currentPosition = Duration.zero;
-        _totalDuration = Duration.zero;
-      });
+      if (mounted) {
+        setState(() {
+          _currentPlayingId = null;
+          _isPlaying = false;
+          _currentPosition = Duration.zero;
+          _totalDuration = Duration.zero;
+        });
+      }
     });
   }
 
@@ -196,9 +206,11 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
       }
     }
     
-    setState(() {
-      _voiceMemos = validatedMemos;
-    });
+    if (mounted) {
+      setState(() {
+        _voiceMemos = validatedMemos;
+      });
+    }
   }
 
   void _startManualRecording() async {
@@ -225,24 +237,30 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         // ファイルサイズの確認
         final fileSize = await file.length();
         if (fileSize <= 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('再生できません: 音声ファイルが空です')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('再生できません: 音声ファイルが空です')),
+            );
+          }
           return;
         }
         
         print('再生開始: ${voiceMemo.filePath} (サイズ: ${fileSize}バイト)');
       } else if (voiceMemo.transcription == null || voiceMemo.transcription!.isEmpty) {
         // ファイルパスが空で、書き起こしもない場合はエラー
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('再生できません: 音声ファイルが見つかりません')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('再生できません: 音声ファイルが見つかりません')),
+          );
+        }
         return;
       } else {
         // ファイルパスが空だが書き起こしがある場合（Manual音声メモ）
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('このメモは音声ファイルがありません。書き起こしテキストのみです。')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('このメモは音声ファイルがありません。書き起こしテキストのみです。')),
+          );
+        }
         return;
       }
       
@@ -254,25 +272,27 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
           
           // 音声ファイルがある場合のみ再生
           if (voiceMemo.filePath.isNotEmpty) {
-            // 再生前にファイルの読み取り権限を確認
             try {
               await _audioPlayer.play(DeviceFileSource(voiceMemo.filePath));
-              setState(() {
-                _currentPlayingId = voiceMemo.id;
-              });
-              
-              // 再生成功の通知
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('再生開始: ${voiceMemo.title}'),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
+              if (mounted) {
+                setState(() {
+                  _currentPlayingId = voiceMemo.id;
+                });
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('再生開始: ${voiceMemo.title}'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              }
             } catch (playError) {
               print('音声ファイル再生エラー: $playError');
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('音声ファイルの再生に失敗しました: $playError')),
-              );
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('音声ファイルの再生に失敗しました: $playError')),
+                );
+              }
             }
           }
         } else {
@@ -281,9 +301,11 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
       }
     } catch (e) {
       print('再生エラー詳細: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('再生エラー: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('再生エラー: $e')),
+        );
+      }
     }
   }
   
@@ -349,24 +371,28 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
       }
       
       await _voiceService.deleteVoiceMemo(voiceMemo);
-      setState(() {
-        _voiceMemos.removeWhere((memo) => memo.id == voiceMemo.id);
-      });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ボイスメモを削除しました')),
-      );
+      if (mounted) {
+        setState(() {
+          _voiceMemos.removeWhere((memo) => memo.id == voiceMemo.id);
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ボイスメモを削除しました')),
+        );
+      }
     }
   }
 
   void _stopPlayback() async {
     await _audioPlayer.stop();
-    setState(() {
-      _currentPlayingId = null;
-      _isPlaying = false;
-      _currentPosition = Duration.zero;
-      _totalDuration = Duration.zero;
-    });
+    if (mounted) {
+      setState(() {
+        _currentPlayingId = null;
+        _isPlaying = false;
+        _currentPosition = Duration.zero;
+        _totalDuration = Duration.zero;
+      });
+    }
   }
 
   String _formatDuration(Duration duration) {

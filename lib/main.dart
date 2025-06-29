@@ -84,9 +84,11 @@ class _MainPageState extends State<MainPage> {
   ];
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    if (mounted) {
+      setState(() {
+        _selectedIndex = index;
+      });
+    }
   }
 
   @override
@@ -179,14 +181,16 @@ class _TaskListPageState extends State<TaskListPage> {
       if (success) {
         _setupVoiceServiceCallbacks();
       }
-      setState(() {
-        _isInitialized = true;
-      });
-    } catch (e) {
-      setState(() {
-        _isInitialized = true;
-      });
       if (mounted) {
+        setState(() {
+          _isInitialized = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('音声サービスの初期化に失敗しました: $e')),
         );
@@ -196,18 +200,22 @@ class _TaskListPageState extends State<TaskListPage> {
 
   void _setupVoiceServiceCallbacks() {
     _voiceService.onTranscriptionUpdated = (text) {
-      setState(() {
-        _draftTaskContent = text;
-      });
+      if (mounted) {
+        setState(() {
+          _draftTaskContent = text;
+        });
+      }
     };
     
     _voiceService.onRecordingStateChanged = (isRecording) {
-      setState(() {
-        _isRecording = isRecording;
-        if (!isRecording) {
-          // 録音停止時の処理は特になし（ドラフトカードは表示したまま）
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _isRecording = isRecording;
+          if (!isRecording) {
+            // 録音停止時の処理は特になし（ドラフトカードは表示したまま）
+          }
+        });
+      }
     };
     
     _voiceService.onError = (error) {
@@ -234,10 +242,12 @@ class _TaskListPageState extends State<TaskListPage> {
       return;
     }
 
-    setState(() {
-      _showDraftCard = true;
-      _draftTaskContent = '';
-    });
+    if (mounted) {
+      setState(() {
+        _showDraftCard = true;
+        _draftTaskContent = '';
+      });
+    }
 
     await _voiceService.startContinuousListening();
   }
@@ -255,11 +265,13 @@ class _TaskListPageState extends State<TaskListPage> {
       createdAt: DateTime.now(),
     );
 
-    setState(() {
-      _tasks.insert(0, newTask);
-      _showDraftCard = false;
-      _draftTaskContent = '';
-    });
+    if (mounted) {
+      setState(() {
+        _tasks.insert(0, newTask);
+        _showDraftCard = false;
+        _draftTaskContent = '';
+      });
+    }
 
     _stopVoiceRecording();
     _saveTasks();
@@ -270,17 +282,21 @@ class _TaskListPageState extends State<TaskListPage> {
   }
 
   void _cancelDraftTask() {
-    setState(() {
-      _showDraftCard = false;
-      _draftTaskContent = '';
-    });
+    if (mounted) {
+      setState(() {
+        _showDraftCard = false;
+        _draftTaskContent = '';
+      });
+    }
     _stopVoiceRecording();
   }
 
   void _toggleTask(int index) {
-    setState(() {
-      _tasks[index].isCompleted = !_tasks[index].isCompleted;
-    });
+    if (mounted) {
+      setState(() {
+        _tasks[index].isCompleted = !_tasks[index].isCompleted;
+      });
+    }
     _saveTasks();
   }
 
@@ -297,9 +313,11 @@ class _TaskListPageState extends State<TaskListPage> {
     final tasksString = prefs.getString('tasks');
     if (tasksString != null) {
       final tasksJson = jsonDecode(tasksString) as List;
-      setState(() {
-        _tasks = tasksJson.map((json) => Task.fromJson(json)).toList();
-      });
+      if (mounted) {
+        setState(() {
+          _tasks = tasksJson.map((json) => Task.fromJson(json)).toList();
+        });
+      }
     }
   }
 
@@ -461,9 +479,11 @@ class _TaskListPageState extends State<TaskListPage> {
                             );
                           },
                           onDismissed: (direction) {
-                            setState(() {
-                              _tasks.removeAt(index);
-                            });
+                            if (mounted) {
+                              setState(() {
+                                _tasks.removeAt(index);
+                              });
+                            }
                             _saveTasks();
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -471,9 +491,11 @@ class _TaskListPageState extends State<TaskListPage> {
                                 action: SnackBarAction(
                                   label: '元に戻す',
                                   onPressed: () {
-                                    setState(() {
-                                      _tasks.insert(index, task);
-                                    });
+                                    if (mounted) {
+                                      setState(() {
+                                        _tasks.insert(index, task);
+                                      });
+                                    }
                                     _saveTasks();
                                   },
                                 ),

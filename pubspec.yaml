@@ -47,6 +47,9 @@ dependencies:
   # 音声認識機能
   speech_to_text: ^7.0.0
   
+  # 音声録音機能
+  record: ^6.0.0
+  
   # 加速度センサー
   sensors_plus: ^6.0.1
   

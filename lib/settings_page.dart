@@ -94,9 +94,11 @@ class _SettingsPageState extends State<SettingsPage> {
       final success = await _voiceService.setModel(modelId);
       
       if (success) {
-        setState(() {
-          _currentModel = modelId;
-        });
+        if (mounted) {
+          setState(() {
+            _currentModel = modelId;
+          });
+        }
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -168,10 +170,12 @@ class _SettingsPageState extends State<SettingsPage> {
     
     if (confirmed != true) return;
     
-    setState(() {
-      _isDownloading = true;
-      _downloadProgress = 0.0;
-    });
+    if (mounted) {
+      setState(() {
+        _isDownloading = true;
+        _downloadProgress = 0.0;
+      });
+    }
     
     try {
       await _performDownload(modelInfo);
@@ -198,10 +202,12 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       }
     } finally {
-      setState(() {
-        _isDownloading = false;
-        _downloadProgress = 0.0;
-      });
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+      }
     }
   }
 
