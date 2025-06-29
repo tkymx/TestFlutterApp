@@ -10,6 +10,13 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'dart:math';
 
+/// ボイスメモの処理状態
+enum VoiceMemoStatus {
+  processing,    // 文字起こし処理中
+  completed,     // 処理完了
+  failed,        // 処理失敗
+}
+
 /// ボイスメモデータクラス
 class VoiceMemo {
   String id;
@@ -18,6 +25,7 @@ class VoiceMemo {
   DateTime createdAt;
   Duration duration;
   String? transcription;
+  VoiceMemoStatus status;
 
   VoiceMemo({
     required this.id,
@@ -26,6 +34,7 @@ class VoiceMemo {
     required this.createdAt,
     this.duration = Duration.zero,
     this.transcription,
+    this.status = VoiceMemoStatus.completed,
   });
 
   Map<String, dynamic> toJson() {
@@ -36,6 +45,7 @@ class VoiceMemo {
       'createdAt': createdAt.toIso8601String(),
       'duration': duration.inMilliseconds,
       'transcription': transcription,
+      'status': status.index,
     };
   }
 
@@ -47,6 +57,7 @@ class VoiceMemo {
       createdAt: DateTime.parse(json['createdAt']),
       duration: Duration(milliseconds: json['duration'] ?? 0),
       transcription: json['transcription'],
+      status: VoiceMemoStatus.values[json['status'] ?? 1], // デフォルトはcompleted
     );
   }
 }
@@ -76,6 +87,7 @@ class UnifiedVoiceService {
   bool _speechEnabled = false;
   bool _isContinuousListening = false;
   bool _isPaused = false;
+  bool _isProcessingVoiceMemo = false; // 文字起こし処理中フラグ
   String? _currentRecordingPath;
   DateTime? _recordingStartTime;
   String _recognizedText = '';
@@ -97,6 +109,7 @@ class UnifiedVoiceService {
   
   // コールバック
   Function(VoiceMemo)? onVoiceMemoCreated;
+  Function(VoiceMemo)? onVoiceMemoUpdated; // 文字起こし完了時に呼ばれる
   Function(bool)? onRecordingStateChanged;
   Function(String)? onError;
   Function(String)? onTranscriptionUpdated;
@@ -105,6 +118,7 @@ class UnifiedVoiceService {
   // ゲッター
   bool get isRecording => _isRecording || _isVoiceMemoRecording;
   bool get isVoiceMemoRecording => _isVoiceMemoRecording;
+  bool get isProcessingVoiceMemo => _isProcessingVoiceMemo;
   bool get isInitialized => _isInitialized;
   bool get speechEnabled => _speechEnabled;
   bool get isContinuousListening => _isContinuousListening;
@@ -531,7 +545,7 @@ class UnifiedVoiceService {
 
   /// ボイスメモ専用の録音開始
   Future<void> startVoiceMemoRecording() async {
-    if (_isVoiceMemoRecording || kIsWeb) return;
+    if (_isVoiceMemoRecording || _isProcessingVoiceMemo || kIsWeb) return;
     
     try {
       // 録音ファイルパスを生成
@@ -575,8 +589,9 @@ class UnifiedVoiceService {
       await Future.delayed(const Duration(milliseconds: 300));
       
       _isVoiceMemoRecording = false;
+      _isProcessingVoiceMemo = true; // 処理中フラグを設定
       onRecordingStateChanged?.call(false);
-      onStatusChanged?.call('録音停止');
+      onStatusChanged?.call('録音停止 - 処理中...');
       
       // 録音ファイルが存在する場合、Voskで書き起こしを実行
       if (recordedPath != null && _voiceMemoRecordingStartTime != null) {
@@ -597,6 +612,8 @@ class UnifiedVoiceService {
       _voiceMemoRecordingStartTime = null;
       _isVoiceMemoRecording = false;
       onRecordingStateChanged?.call(false);
+    } finally {
+      _isProcessingVoiceMemo = false;
     }
   }
 
@@ -619,6 +636,24 @@ class UnifiedVoiceService {
       
       final duration = DateTime.now().difference(startTime);
       
+      // まず処理中のボイスメモを作成して表示
+      final voiceMemo = VoiceMemo(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        filePath: path,
+        title: '文字起こし中...',
+        createdAt: startTime,
+        duration: duration,
+        transcription: null,
+        status: VoiceMemoStatus.processing,
+      );
+      
+      // 処理中のメモを保存して表示
+      final saveSuccess = await saveVoiceMemo(voiceMemo);
+      if (saveSuccess) {
+        onVoiceMemoCreated?.call(voiceMemo);
+        onStatusChanged?.call('録音完了 - 文字起こし中...');
+      }
+      
       // 録音後にVoskを使って音声ファイルから書き起こしを実行
       String? transcriptionText;
       if (_speechEnabled) {
@@ -639,28 +674,35 @@ class UnifiedVoiceService {
         transcriptionText = null;
       }
       
+      // 書き起こし結果でメモを更新
       String title;
+      VoiceMemoStatus status;
       if (transcriptionText != null && transcriptionText.isNotEmpty) {
         final titleText = transcriptionText.length > 20 
             ? '${transcriptionText.substring(0, 20)}...' 
             : transcriptionText;
         title = titleText;
+        status = VoiceMemoStatus.completed;
       } else {
         title = 'ボイスメモ ${DateTime.now().month}/${DateTime.now().day} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}';
+        status = VoiceMemoStatus.failed;
       }
       
-      final voiceMemo = VoiceMemo(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+      // 更新されたメモ
+      final updatedVoiceMemo = VoiceMemo(
+        id: voiceMemo.id,
         filePath: path,
         title: title,
         createdAt: startTime,
         duration: duration,
         transcription: transcriptionText,
+        status: status,
       );
       
-      final saveSuccess = await saveVoiceMemo(voiceMemo);
-      if (saveSuccess) {
-        onVoiceMemoCreated?.call(voiceMemo);
+      // メモを更新
+      final updateSuccess = await updateVoiceMemo(updatedVoiceMemo);
+      if (updateSuccess) {
+        onVoiceMemoUpdated?.call(updatedVoiceMemo);
         if (transcriptionText != null && transcriptionText.isNotEmpty) {
           onTranscriptionUpdated?.call(transcriptionText);
           onStatusChanged?.call('ボイスメモ録音完了 - Vosk書き起こし成功');
@@ -668,13 +710,17 @@ class UnifiedVoiceService {
           onStatusChanged?.call('ボイスメモ録音完了 - 書き起こしなし');
         }
         print('ボイスメモ録音を停止しました: $path (サイズ: ${(fileSize / 1024).toStringAsFixed(1)}KB)');
-        print('Vosk書き起こし: ${voiceMemo.transcription ?? "なし"}');
+        print('Vosk書き起こし: ${updatedVoiceMemo.transcription ?? "なし"}');
       } else {
-        onError?.call('ボイスメモの保存に失敗しました');
+        onError?.call('ボイスメモの更新に失敗しました');
       }
+      
+      // 処理完了フラグをリセット（finally内で実行される）
     } catch (e) {
       print('ボイスメモ録音ファイル処理エラー: $e');
       onError?.call('ボイスメモ録音ファイル処理エラー: $e');
+    } finally {
+      _isProcessingVoiceMemo = false;
     }
   }
 
@@ -693,6 +739,7 @@ class UnifiedVoiceService {
         createdAt: startTime,
         duration: duration,
         transcription: recognizedText,
+        status: VoiceMemoStatus.completed,
       );
       
       final saveSuccess = await saveVoiceMemo(voiceMemo);
@@ -853,6 +900,7 @@ class UnifiedVoiceService {
         createdAt: DateTime.now(),
         duration: Duration.zero,
         transcription: textToUse,
+        status: VoiceMemoStatus.completed,
       );
 
       final saveSuccess = await saveVoiceMemo(voiceMemo);
@@ -869,6 +917,29 @@ class UnifiedVoiceService {
       print('手動音声メモ作成エラー: $e');
       onError?.call('手動音声メモ作成エラー: $e');
       return null;
+    }
+  }
+
+  /// ボイスメモ更新
+  Future<bool> updateVoiceMemo(VoiceMemo voiceMemo) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final voiceMemosString = prefs.getString('voice_memos') ?? '[]';
+      final voiceMemosJson = jsonDecode(voiceMemosString) as List;
+      
+      // 既存のメモを更新
+      int index = voiceMemosJson.indexWhere((json) => json['id'] == voiceMemo.id);
+      if (index != -1) {
+        voiceMemosJson[index] = voiceMemo.toJson();
+        await prefs.setString('voice_memos', jsonEncode(voiceMemosJson));
+        return true;
+      } else {
+        print('更新対象のボイスメモが見つかりません: ${voiceMemo.id}');
+        return false;
+      }
+    } catch (e) {
+      print('ボイスメモ更新エラー: $e');
+      return false;
     }
   }
 

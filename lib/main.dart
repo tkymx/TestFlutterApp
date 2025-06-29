@@ -167,6 +167,7 @@ class _TaskListPageState extends State<TaskListPage> {
   bool _isRecording = false;
   String _draftTaskContent = '';
   bool _showDraftCard = false;
+  bool _isExpanded = false; // アコーディオン表示用
 
   @override
   void initState() {
@@ -202,7 +203,8 @@ class _TaskListPageState extends State<TaskListPage> {
     _voiceService.onTranscriptionUpdated = (text) {
       if (mounted) {
         setState(() {
-          _draftTaskContent = text;
+          // 不要なスペースを削除して意味のある単位でスペースを保持
+          _draftTaskContent = _cleanupText(text);
         });
       }
     };
@@ -225,6 +227,20 @@ class _TaskListPageState extends State<TaskListPage> {
         );
       }
     };
+  }
+
+  String _cleanupText(String text) {
+    // 連続するスペースを単一のスペースに変換
+    String cleaned = text.replaceAll(RegExp(r'\s+'), ' ');
+    // 先頭と末尾のスペースを削除
+    cleaned = cleaned.trim();
+    // 日本語の文字間の不要なスペースを削除（ひらがな、カタカナ、漢字間）
+    // 正規表現のキャプチャグループを正しく使用
+    cleaned = cleaned.replaceAllMapped(
+      RegExp(r'([\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF])\s+([\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF])'),
+      (match) => '${match.group(1)}${match.group(2)}',
+    );
+    return cleaned;
   }
 
   void _startVoiceRecording() async {
@@ -437,103 +453,134 @@ class _TaskListPageState extends State<TaskListPage> {
           Expanded(
             child: _tasks.isEmpty
                 ? _buildEmptyMessage()
-                : ListView.builder(
-                    padding: const EdgeInsets.all(8.0),
-                    itemCount: _tasks.length,
-                    itemBuilder: (context, index) {
-                      final task = _tasks[index];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 8.0,
-                          vertical: 4.0,
-                        ),
-                        child: Dismissible(
-                          key: Key(task.id),
-                          direction: DismissDirection.endToStart,
-                          background: Container(
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.only(right: 20.0),
-                            color: Colors.red,
-                            child: const Icon(
-                              Icons.delete,
-                              color: Colors.white,
-                            ),
+                : Column(
+                    children: [
+                      // タスク数が多い場合はアコーディオンヘッダーを表示
+                      if (_tasks.length > 5)
+                        Card(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 16.0,
+                            vertical: 8.0,
                           ),
-                          confirmDismiss: (direction) async {
-                            return await showDialog(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('タスクを削除'),
-                                content: Text('「${task.content}」を削除しますか？'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.of(context).pop(false),
-                                    child: const Text('キャンセル'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () => Navigator.of(context).pop(true),
-                                    child: const Text('削除', style: TextStyle(color: Colors.red)),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                          onDismissed: (direction) {
-                            if (mounted) {
-                              setState(() {
-                                _tasks.removeAt(index);
-                              });
-                            }
-                            _saveTasks();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('「${task.content}」を削除しました'),
-                                action: SnackBarAction(
-                                  label: '元に戻す',
-                                  onPressed: () {
-                                    if (mounted) {
-                                      setState(() {
-                                        _tasks.insert(index, task);
-                                      });
-                                    }
-                                    _saveTasks();
-                                  },
-                                ),
-                              ),
-                            );
-                          },
                           child: ListTile(
-                            leading: Checkbox(
-                              value: task.isCompleted,
-                              onChanged: (_) => _toggleTask(index),
+                            leading: Icon(
+                              _isExpanded ? Icons.expand_less : Icons.expand_more,
                             ),
                             title: Text(
-                              task.content,
-                              style: TextStyle(
-                                decoration: task.isCompleted
-                                    ? TextDecoration.lineThrough
-                                    : null,
-                                color: task.isCompleted
-                                    ? Colors.grey
-                                    : null,
-                              ),
+                              'タスク一覧 (${_tasks.length}件)',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
                             ),
-                            subtitle: Text(
-                              '作成日時: ${task.createdAt.month}/${task.createdAt.day} ${task.createdAt.hour}:${task.createdAt.minute.toString().padLeft(2, '0')}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            trailing: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.swipe_left, color: Colors.grey, size: 16),
-                                SizedBox(width: 4),
-                                Text('スワイプで削除', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                              ],
-                            ),
+                            subtitle: _isExpanded 
+                                ? const Text('タップして折りたたむ')
+                                : const Text('タップして展開'),
+                            onTap: () {
+                              setState(() {
+                                _isExpanded = !_isExpanded;
+                              });
+                            },
                           ),
                         ),
-                      );
-                    },
+                      // タスクリスト本体
+                      Expanded(
+                        child: _tasks.length <= 5 || _isExpanded
+                            ? ListView.builder(
+                                padding: const EdgeInsets.all(8.0),
+                                itemCount: _tasks.length,
+                                itemBuilder: (context, index) {
+                                  final task = _tasks[index];
+                                  return Card(
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 8.0,
+                                      vertical: 4.0,
+                                    ),
+                                    child: Dismissible(
+                                      key: Key(task.id),
+                                      direction: DismissDirection.endToStart,
+                                      background: Container(
+                                        alignment: Alignment.centerRight,
+                                        padding: const EdgeInsets.only(right: 20.0),
+                                        color: Colors.red,
+                                        child: const Icon(
+                                          Icons.delete,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      confirmDismiss: (direction) async {
+                                        return await showDialog(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: const Text('タスクを削除'),
+                                            content: Text('「${task.content}」を削除しますか？'),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.of(context).pop(false),
+                                                child: const Text('キャンセル'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () => Navigator.of(context).pop(true),
+                                                child: const Text('削除', style: TextStyle(color: Colors.red)),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                      onDismissed: (direction) {
+                                        if (mounted) {
+                                          setState(() {
+                                            _tasks.removeAt(index);
+                                          });
+                                        }
+                                        _saveTasks();
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('「${task.content}」を削除しました'),
+                                            action: SnackBarAction(
+                                              label: '元に戻す',
+                                              onPressed: () {
+                                                if (mounted) {
+                                                  setState(() {
+                                                    _tasks.insert(index, task);
+                                                  });
+                                                }
+                                                _saveTasks();
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      child: ListTile(
+                                        leading: Checkbox(
+                                          value: task.isCompleted,
+                                          onChanged: (_) => _toggleTask(index),
+                                        ),
+                                        title: Text(
+                                          task.content,
+                                          style: TextStyle(
+                                            decoration: task.isCompleted
+                                                ? TextDecoration.lineThrough
+                                                : null,
+                                            color: task.isCompleted
+                                                ? Colors.grey
+                                                : null,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          '作成日時: ${task.createdAt.month}/${task.createdAt.day} ${task.createdAt.hour}:${task.createdAt.minute.toString().padLeft(2, '0')}',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              )
+                            : const Center(
+                                child: Text(
+                                  'タスク一覧を見るには上のヘッダーをタップしてください',
+                                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                                ),
+                              ),
+                      ),
+                    ],
                   ),
           ),
         ],

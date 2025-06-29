@@ -22,6 +22,9 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
   bool _isPlaying = false;
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
+  
+  // 録音状態管理
+  bool _isRecordingInProgress = false;
 
   @override
   void initState() {
@@ -79,6 +82,25 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('新しいボイスメモが作成されました')),
         );
+      }
+    };
+
+    _voiceService.onVoiceMemoUpdated = (voiceMemo) {
+      if (mounted) {
+        setState(() {
+          // 既存のメモを更新
+          int index = _voiceMemos.indexWhere((memo) => memo.id == voiceMemo.id);
+          if (index != -1) {
+            _voiceMemos[index] = voiceMemo;
+          }
+        });
+        if (voiceMemo.status == VoiceMemoStatus.completed && 
+            voiceMemo.transcription != null && 
+            voiceMemo.transcription!.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('文字起こしが完了しました')),
+          );
+        }
       }
     };
     
@@ -213,11 +235,23 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
     }
   }
 
-  void _startManualRecording() async {
+  void _startMenuRecording() async {
+    if (_isRecordingInProgress) return;
+    
+    setState(() {
+      _isRecordingInProgress = true;
+    });
+    
     await _voiceService.startVoiceMemoRecording();
   }
 
-  void _stopManualRecording() async {
+  void _stopMenuRecording() async {
+    if (!_isRecordingInProgress) return;
+    
+    setState(() {
+      _isRecordingInProgress = false;
+    });
+    
     await _voiceService.stopVoiceMemoRecording();
   }
 
@@ -488,128 +522,6 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
       ),
       body: Column(
         children: [
-          // 録音コントロール
-          Container(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                // 状態表示
-                Container(
-                  padding: const EdgeInsets.all(12.0),
-                  decoration: BoxDecoration(
-                    color: _getRecordingState() != '停止中'
-                      ? Colors.red.withOpacity(0.1)
-                      : Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8.0),
-                    border: Border.all(
-                      color: _getRecordingState() != '停止中'
-                        ? Colors.red.withOpacity(0.3)
-                        : Colors.grey.withOpacity(0.3),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _getRecordingState() != '停止中'
-                              ? Icons.fiber_manual_record
-                              : Icons.pause_circle_outline,
-                            color: _getRecordingState() != '停止中'
-                              ? Colors.red
-                              : Colors.grey,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Column(
-                            children: [
-                              Text(
-                                _getRecordingState(),
-                                style: TextStyle(
-                                  color: _getRecordingState() != '停止中'
-                                    ? Colors.red
-                                    : Colors.grey,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'Vosk対応',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // 録音ボタン
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // 通常の録音ボタン（標準サイズに変更）
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: (_voiceService.isRecording ? Colors.red : Colors.green).withOpacity(0.3),
-                            blurRadius: _voiceService.isRecording ? 12 : 6,
-                            spreadRadius: _voiceService.isRecording ? 3 : 1,
-                          ),
-                        ],
-                      ),
-                      child: FloatingActionButton(
-                        onPressed: _voiceService.isRecording
-                          ? _stopManualRecording
-                          : _startManualRecording,
-                        backgroundColor: _voiceService.isRecording ? Colors.red : Colors.green,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          child: Icon(
-                            _voiceService.isRecording ? Icons.stop : Icons.mic,
-                            key: ValueKey(_voiceService.isRecording),
-                            size: 26,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                // 録音状態の説明テキスト
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: Text(
-                    _voiceService.isRecording 
-                        ? 'ボイスメモを録音中...' 
-                        : '大きなボタンを押して録音を開始',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(),
           // 再生コントロール（再生中のみ表示）
           if (_currentPlayingId != null)
             Container(
@@ -666,17 +578,37 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                         ),
                         child: ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: isCurrentMemo 
-                              ? (isPlaying ? Colors.green : Colors.orange)
-                              : hasAudioFile ? Colors.blue : Colors.grey,
-                            child: Icon(
-                              hasAudioFile 
-                                ? (isPlaying ? Icons.pause : Icons.play_arrow)
-                                : Icons.text_snippet,
-                              color: Colors.white,
+                            backgroundColor: memo.status == VoiceMemoStatus.processing
+                              ? Colors.orange
+                              : isCurrentMemo 
+                                ? (isPlaying ? Colors.green : Colors.orange)
+                                : hasAudioFile ? Colors.blue : Colors.grey,
+                            child: memo.status == VoiceMemoStatus.processing
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Icon(
+                                  hasAudioFile 
+                                    ? (isPlaying ? Icons.pause : Icons.play_arrow)
+                                    : Icons.text_snippet,
+                                  color: Colors.white,
+                                ),
+                          ),
+                          title: Text(
+                            memo.status == VoiceMemoStatus.processing
+                              ? '文字起こし中...'
+                              : memo.title,
+                            style: TextStyle(
+                              color: memo.status == VoiceMemoStatus.processing
+                                ? Colors.orange[700]
+                                : null,
                             ),
                           ),
-                          title: Text(memo.title),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -695,7 +627,7 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                                   style: TextStyle(fontSize: 12, color: Colors.grey),
                                 ),
                               // 書き起こしテキストのプレビュー表示
-                              if (hasTranscription)
+                              if (hasTranscription && memo.status != VoiceMemoStatus.processing)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 6.0),
                                   child: Container(
@@ -749,16 +681,27 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                                 child: Row(
                                   children: [
                                     Icon(
-                                      hasAudioFile ? Icons.audiotrack : Icons.text_snippet, 
+                                      memo.status == VoiceMemoStatus.processing
+                                        ? Icons.hourglass_empty
+                                        : hasAudioFile ? Icons.audiotrack : Icons.text_snippet, 
                                       size: 12, 
-                                      color: Colors.grey
+                                      color: memo.status == VoiceMemoStatus.processing
+                                        ? Colors.orange
+                                        : Colors.grey
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      hasAudioFile 
-                                        ? (hasTranscription ? '音声+書き起こし' : '音声のみ')
-                                        : '書き起こしのみ',
-                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                      memo.status == VoiceMemoStatus.processing
+                                        ? '処理中...'
+                                        : hasAudioFile 
+                                          ? (hasTranscription ? '音声+書き起こし' : '音声のみ')
+                                          : '書き起こしのみ',
+                                      style: TextStyle(
+                                        fontSize: 12, 
+                                        color: memo.status == VoiceMemoStatus.processing
+                                          ? Colors.orange[700]
+                                          : Colors.grey
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -769,26 +712,37 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               // 書き起こしがある場合は表示ボタンを追加
-                              if (hasTranscription)
+                              if (hasTranscription && memo.status != VoiceMemoStatus.processing)
                                 IconButton(
                                   icon: const Icon(Icons.text_snippet, color: Colors.blue),
                                   tooltip: '書き起こしを表示',
                                   onPressed: () => _showTranscriptionDialog(memo),
                                 ),
                               IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () => _deleteVoiceMemo(memo),
+                                icon: Icon(
+                                  Icons.delete, 
+                                  color: memo.status == VoiceMemoStatus.processing 
+                                    ? Colors.grey 
+                                    : Colors.red
+                                ),
+                                onPressed: memo.status == VoiceMemoStatus.processing 
+                                  ? null 
+                                  : () => _deleteVoiceMemo(memo),
                               ),
                             ],
                           ),
-                          onTap: () {
-                            if (hasAudioFile) {
-                              _playVoiceMemo(memo);
-                            } else if (hasTranscription) {
-                              _showTranscriptionDialog(memo);
-                            }
-                          },
-                          onLongPress: () => _deleteVoiceMemo(memo),
+                          onTap: memo.status == VoiceMemoStatus.processing
+                            ? null
+                            : () {
+                                if (hasAudioFile) {
+                                  _playVoiceMemo(memo);
+                                } else if (hasTranscription) {
+                                  _showTranscriptionDialog(memo);
+                                }
+                              },
+                          onLongPress: memo.status == VoiceMemoStatus.processing 
+                            ? null 
+                            : () => _deleteVoiceMemo(memo),
                         ),
                       );
                     },
@@ -796,17 +750,53 @@ class _VoiceMemoPageState extends State<VoiceMemoPage> {
           ),
         ],
       ),
+      // 右下の録音ボタン
+      floatingActionButton: _buildFloatingActionButton(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
-  String _getRecordingState() {
-    if (_voiceService.isRecording) {
-      return '録音中...';
+  Widget _buildFloatingActionButton() {
+    if (_isRecordingInProgress) {
+      // 録音中は停止と取り消しボタンを表示
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 取り消しボタン
+          FloatingActionButton(
+            heroTag: "cancel",
+            onPressed: () async {
+              await _voiceService.stopVoiceMemoRecording();
+              setState(() {
+                _isRecordingInProgress = false;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('録音を取り消しました')),
+              );
+            },
+            backgroundColor: Colors.red,
+            child: const Icon(Icons.cancel, color: Colors.white),
+          ),
+          const SizedBox(height: 16),
+          // 停止ボタン
+          FloatingActionButton(
+            heroTag: "stop",
+            onPressed: _stopMenuRecording,
+            backgroundColor: Colors.orange,
+            child: const Icon(Icons.stop, color: Colors.white),
+          ),
+        ],
+      );
     } else {
-      return '停止中';
+      // 通常時は録音ボタンのみ表示
+      return FloatingActionButton(
+        heroTag: "record",
+        onPressed: _startMenuRecording,
+        backgroundColor: Colors.blue,
+        child: const Icon(Icons.mic, color: Colors.white),
+      );
     }
   }
-
   @override
   void dispose() {
     _audioPlayer.dispose();
